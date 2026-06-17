@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment
+.env
+*.env
+
+# Runtime data
+.data/
+.ai/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
