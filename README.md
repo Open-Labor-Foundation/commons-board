@@ -1,14 +1,16 @@
 # commons-board
 
-AI-powered governance for worker collectives and organizations, backed by the specialist knowledge of [labor-commons](https://github.com/Open-Labor-Foundation/labor-commons).
+*What you know lifts us all.*
 
-commons-board gives any collective — delivery workers, a trades cooperative, a nonprofit, a small business — a full operational structure: agents for every function, a policy engine that governs what runs automatically, and an immutable audit trail of every decision before it executes.
+AI-powered governance for any organization, backed by the specialist knowledge of [labor-commons](https://github.com/Open-Labor-Foundation/labor-commons).
+
+Whether you're a sole business owner who needs expert guidance in domains outside your field, or a worker collective running shared operations — commons-board gives you a full organizational structure staffed by specialists from the catalog. Legal, accounting, HR, IT, marketing, operations: all covered, all drawn from labor-commons, all available from day one.
 
 ---
 
 ## How it works
 
-commons-board runs an organization's operations through a governed hierarchy:
+commons-board runs an organization through a governed hierarchy:
 
 - **Board** — strategy, policy, and cross-function coordination
 - **Executive chairs** — functional ownership across finance, marketing, operations, legal, HR, and product
@@ -17,9 +19,9 @@ commons-board runs an organization's operations through a governed hierarchy:
 
 Each level has defined authority. No agent acts outside its granted scope.
 
-## Governance modes
+---
 
-Collectives choose their level of autonomy:
+## Governance modes
 
 | Mode | Behavior |
 |---|---|
@@ -27,22 +29,20 @@ Collectives choose their level of autonomy:
 | **Orchestrator** | Routine actions execute automatically; novel or high-risk actions surface for approval |
 | **Autopilot** | All actions execute within policy thresholds; low-confidence decisions escalate automatically |
 
-Start in advisor mode. Move to orchestrator or autopilot as trust is established.
+Start in Advisor mode. Move to Orchestrator or Autopilot as trust is established.
 
-## Who it is for
-
-Any group of workers who need governed, coordinated operations without handing control to a platform they do not own.
-
-A delivery collective running commons-board has a financial agent managing their books, a marketing agent coordinating outreach, a legal agent reviewing contracts, and an operations agent handling logistics — all governed by policies the collective sets and controls.
+---
 
 ## Part of the Open Labor Foundation stack
 
 | | |
 |---|---|
 | [labor-commons](https://github.com/Open-Labor-Foundation/labor-commons) | The specialist catalog commons-board draws from |
-| [commons-crew](https://github.com/Open-Labor-Foundation/commons-crew) | The personal assistant — specialist tasks route through here |
-| commons-board | The governing board — you are here |
+| [commons-keeper](https://github.com/Open-Labor-Foundation/commons-keeper) | Keeps the catalog accurate and current |
+| [commons-crew](https://github.com/Open-Labor-Foundation/commons-crew) | Personal assistant — individual tasks route through here |
+| commons-board | Organizational governance — you are here |
+| [commons-idea](https://github.com/Open-Labor-Foundation/commons-idea) | Turn an idea into running software, then bring it here to govern at org scale |
 
 ---
 
-*Under active development. Deployment and contribution instructions coming soon.*
+*Part of the [Open Labor Foundation](https://github.com/Open-Labor-Foundation/open-labor-foundation).*
