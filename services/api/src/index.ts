@@ -33,6 +33,7 @@ import { eventsRouter } from "./routes/events.js";
 import { launchRouter } from "./routes/launch.js";
 import { devloopRouter } from "./routes/devloop.js";
 import { level4Router } from "./routes/level4.js";
+import { autonomousCompanyRouter } from "./routes/autonomous-company.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -70,6 +71,7 @@ export function createApp() {
   app.use("/api/v1/launch", launchRouter);             // Phase 8
   app.use("/api/v1/devloop", devloopRouter);           // Phase 8
   app.use("/api/v1/level4", level4Router);             // Phase 9
+  app.use("/api/v1/autonomous", autonomousCompanyRouter); // Phase 10
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
