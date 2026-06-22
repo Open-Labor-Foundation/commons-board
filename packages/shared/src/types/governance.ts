@@ -54,7 +54,12 @@ export type GovernanceEventType =
   | "amendment_applied"
   | "distribution_executed"
   | "federation_linked"
-  | "policy_floor_changed";
+  | "policy_floor_changed"
+  | "board_request_submitted"
+  | "board_request_updated"
+  | "board_request_status_changed"
+  | "board_roadmap_created"
+  | "board_chat_completed";
 
 /** A governance event. Signed and chained when persisted. */
 export interface GovernanceEvent {

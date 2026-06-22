@@ -21,6 +21,9 @@ import { approvalsRouter } from "./routes/approvals.js";
 import { votesRouter } from "./routes/votes.js";
 import { amendmentsRouter } from "./routes/amendments.js";
 import { decisionLogRouter } from "./routes/decision-log.js";
+import { motherboardRouter } from "./routes/motherboard.js";
+import { motherboardChatRouter } from "./routes/motherboard-chat.js";
+import { simulationBoardRouter } from "./routes/simulation-board.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -46,6 +49,9 @@ export function createApp() {
   app.use("/api/v1/votes", votesRouter);           // Phase 4
   app.use("/api/v1/amendments", amendmentsRouter); // Phase 4
   app.use("/api/v1/decision-log", decisionLogRouter); // Phase 4
+  app.use("/api/v1/board/chat", motherboardChatRouter); // Phase 5 (must precede /api/v1/board)
+  app.use("/api/v1/board", motherboardRouter);      // Phase 5
+  app.use("/api/v1/sim", simulationBoardRouter);   // Phase 5
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
