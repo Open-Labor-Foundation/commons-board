@@ -78,11 +78,17 @@ Every specialist contributed to labor-commons by a domain expert — every elect
 
 ---
 
-## The Commons-Crew Relationship
+## Interface: Self-Contained, With an Optional Bridge
 
-Humans interact with commons-board through [commons-crew](https://github.com/Open-Labor-Foundation/commons-crew). Whether the user is a sole proprietor checking in with their executive bench or a collective member reviewing a governance decision, they talk to commons-crew's personal assistant. Commons-crew routes organizational context — "run the weekly brief," "I need to approve the contract," "what's the financial status" — into commons-board.
+commons-board is a complete, standalone platform. It carries its own human interface from mother-board: a chat interpreter that turns plain language into structured board intent, a board chat surface, and a web UI for oversight and audit. A business owner or a collective uses commons-board directly. It is not a layer that sits behind another application, and it does not require any other OLF repo to be usable.
 
-Commons-board is not a separate application the user logs into. It is the organizational layer that activates behind commons-crew when the context is "manage my organization" rather than "help me with a task."
+[commons-crew](https://github.com/Open-Labor-Foundation/commons-crew) is an **optional** integration, not a dependency. If a user already lives in the commons-crew personal assistant, a thin bridge lets them reach their board — "run the weekly brief," "approve the contract," "what's the financial status" — without leaving the PA. That convenience exists for people already in the commons-crew workflow; it is never required to operate commons-board. The board's own interface is always the primary surface.
+
+## Provider and Inference Settings
+
+commons-board does its reasoning through configurable inference providers, chosen in a settings menu rather than hardcoded. An operator can select from multiple providers and multiple implementation styles — hosted API providers, harness/console-based providers, and local inference — and switch between them per deployment.
+
+No API keys or provider credentials ever live in this repository. Provider selection is in-repo configuration; the credentials that back a selection are deployment-specific settings injected at runtime. The repo describes *which kinds of providers are supported and how to configure one*; it never contains a usable secret.
 
 ---
 

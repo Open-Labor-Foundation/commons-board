@@ -1,6 +1,6 @@
 # commons-board — Execution Plan
 
-This is the full implementation plan for migrating mother-board into commons-board. Every capability in the mother-board codebase migrates. Nothing is deferred. On top of the migration, commons-board adds the OLF layer: labor-commons integration, collective governance, collective economics, and the commons-crew bridge.
+This is the full implementation plan for migrating mother-board into commons-board. Every capability in the mother-board codebase migrates. Nothing is deferred. On top of the migration, commons-board adds the OLF layer: a configurable provider/settings subsystem, labor-commons integration, collective governance, org economics (business monetization + collective treasury), and an optional commons-crew bridge.
 
 This plan is ready to execute directly after approval. Each phase lists the exact source files to carry, the new files to author, the routes, the database changes, and the acceptance criteria.
 
@@ -48,7 +48,8 @@ Every mother-board source component and its destination phase:
 | market feedback, experiment evolution, capital allocation engines | Phase 10 |
 | `routes/billing.ts` (inverted: the subscription/plan/entitlement engine becomes a business-mode capability to bill the org's *own* customers) | Phase 11 |
 | business monetization (inverted billing engine) + collective treasury (new) | Phase 11 |
-| crew-bridge (new) | Phase 12 |
+| provider/inference adapters + `routes/settings.ts` (new; RBAC exposed as settings) | Phase 1 |
+| crew-bridge (new; optional integration, not primary interface) | Phase 12 |
 | `routes/feedback.ts`, `routes/evals.ts`, `routes/demo.ts` | Phase 12 |
 | `apps/web/*` | Phase 13 |
 | federation / portfolio (extends `child-runtime-client.ts`) | Phase 14 |
@@ -80,14 +81,21 @@ Every mother-board source component and its destination phase:
 - `packages/shared/src/types/` — all artifact types (6 governing artifacts), Action object, GovernanceEvent, DecisionLogEntry, SpecialistResolution types
 - Monorepo scaffold: workspace `package.json`, `tsconfig.base.json`, service skeletons, `Dockerfile`, `docker-compose.yml`, `.github/`
 - `services/api/src/index.ts` — gateway: auth middleware, health endpoint, redacted logging, correlation IDs, error handling
+- **Provider & settings subsystem** (foundational — the interview and all reasoning depend on it):
+  - `lib/provider/index.ts` — single inference-provider interface
+  - `lib/provider/hosted-api.ts`, `harness-console.ts`, `local-inference.ts` — pluggable adapters for hosted API providers, harness/console providers, and local inference
+  - `routes/settings.ts` — provider selection, RBAC configuration (carried `auth.ts` exposed as operator-controllable settings), autonomy/cadence preferences, feature toggles
+  - **Credential boundary:** adapters and config shape live in-repo; provider keys/endpoints are deployment-specific settings read from env/secret store at runtime. No usable secret ever enters the repo.
+- JSON Schema files for all 6 governing artifacts (AJV), validated on every artifact write
 
-**Database:** migrations 0001–0009 carried; add `0010_governance_mode.sql` (orgs.governance_mode), `0011_collective.sql` (members, votes, amendments, contributions), `0012_catalog.sql` (catalog_refs, catalog_gaps), `0013_treasury.sql` (treasury accounts, distributions).
+**Database:** migrations 0001–0009 carried; add `0010_governance_mode.sql` (orgs.governance_mode), `0011_collective.sql` (members, votes, amendments, contributions), `0012_catalog.sql` (catalog_refs, catalog_gaps), `0013_economics.sql` (treasury accounts + distributions for collective; plans + subscriptions + invoices for business), `0014_settings.sql` (provider selection, RBAC, preferences per workspace).
 
 **Acceptance:**
 - Monorepo builds clean, zero TS errors
 - All migrations apply without error
-- Artifact store writes/reads/versions all 6 artifact types with schema validation
+- Artifact store writes/reads/versions all 6 artifact types with JSON Schema validation
 - Governance signing produces valid signed payloads; receipts chain correctly
+- Settings service selects a provider; at least two adapters (one hosted, one local) resolve and respond through the common interface; no credential is present in the repo
 - Health endpoint returns 200; Docker container builds and starts
 
 ---
@@ -125,9 +133,11 @@ Every mother-board source component and its destination phase:
 
 **Goal:** Every chair in `agent_blueprint.json` is staffed with labor-commons specialists. This is the defining commons-board capability. Full spec in [labor-commons-integration.md](labor-commons-integration.md).
 
+**Catalog readiness:** labor-commons is ready to be used and its `spec.yaml` schema is stable (`metadata`, `scope.{supported_tasks,common_inputs,expected_outputs,out_of_scope_rules}`, `adjacent_specialties`, `knowledge_baseline`, `freshness`). The full specialist catalog is built autonomously once all repos are ready and infrastructure is deployed. The client and resolver are built against the schema now; they operate against whatever is populated and degrade to gap records for anything not yet present — no need to wait for the catalog build to start this phase.
+
 **Author new:**
-- `lib/labor-commons-client.ts` — remote (GitHub API) and local (clone) modes; `getSpecialist`, `searchSpecialists`, `listByDomain`, `checkForUpdates`, `reportGap`; file-based cache
-- `services/specialist-resolver.ts` — function description → ranked specialist matches (domain alignment, task coverage, scope quality, authority quality); writes gap records
+- `lib/labor-commons-client.ts` — remote (GitHub API) and local (clone) modes; `getSpecialist`, `searchSpecialists`, `listByDomain`, `checkForUpdates`, `reportGap`; file-based cache. Reads the real `spec.yaml` shape.
+- `services/specialist-resolver.ts` — function description → ranked specialist matches scored on `domain_family` alignment, `supported_tasks` coverage, `specialty_boundary`/`out_of_scope_rules` quality, and `knowledge_baseline`/`freshness`; writes gap records
 - `workers/catalog-sync.ts` — weekly check of unpinned refs for catalog updates; surfaces notifications
 
 **Routes:**
@@ -354,9 +364,9 @@ The cooperative counterpart: pooled revenue and governed distribution.
 
 ---
 
-### Phase 12 — Commons-Crew Bridge
+### Phase 12 — Commons-Crew Bridge (Optional Integration)
 
-**Goal:** commons-crew invokes commons-board on the user's behalf. commons-crew is the human entry point; commons-board exposes structured operations, not a chat UI.
+**Goal:** Offer a second door for users already working inside the commons-crew personal assistant. commons-board is fully usable through its own chat interpreter (Phase 5) and web UI (Phase 13); this bridge is a convenience, not the primary surface and not a dependency.
 
 **Carry + sanitize:**
 - `routes/feedback.ts`, `routes/evals.ts`, `routes/demo.ts` — feedback capture, evaluation, and demo flows (reused by the bridge for status/quality signals)
@@ -478,7 +488,7 @@ Phase 8  Company creation & devloop          ─┘
 Phase 9  Level 4 autonomous launcher          (after 8)
 Phase 10 Autonomous company evolution         (after 9)
 Phase 11 Org economics (business monetization + collective treasury)  (after 4; pairs with 9/10)
-Phase 12 Commons-crew bridge                  (after 7)
+Phase 12 Commons-crew bridge (optional)       (after 7)
 Phase 13 Admin & audit UI                     (after 12)
 Phase 14 Federation & multi-org               (after 13)
 Phase 15 Connectors & integration hardening   (continuous; gate before 9 LIVE)
@@ -519,6 +529,7 @@ commons-board v1 is complete when:
 - Business mode runs a full commercial venture — its own subscriptions, per-seat billing, entitlements, and invoicing for its own customers
 - Collective mode distributes treasury under governed vote
 - OLF never charges, meters, or gates an org's use of commons-board
-- commons-crew drives all human interaction through the bridge
+- commons-board is fully operable through its own chat interpreter and web UI; the commons-crew bridge works as an optional second door
+- inference runs through the configurable provider subsystem; no credential exists anywhere in the repo
 - The testing agent's full suite passes on a clean build
 - Every action across every capability is signed, hash-chained, and written to the decision log before execution

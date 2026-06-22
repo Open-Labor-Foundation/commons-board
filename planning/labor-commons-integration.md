@@ -12,17 +12,21 @@ Every specialist contributed to labor-commons by a domain expert compounds into 
 
 ## What a Specialist Definition Provides
 
-A specialist in labor-commons (`catalog/naics-overlays/<domain>/<slug>/spec.yaml`) defines:
+A specialist in labor-commons (`catalog/naics-overlays/<domain-family>/<slug>/spec.yaml`) follows a stable schema. The resolver and client are built against these real fields:
 
-- **Supported tasks**: what this specialist handles, specifically
-- **Out-of-scope rules**: what it refuses or escalates
-- **Orchestrator return rules**: under what conditions it sends work back to the parent
-- **Expected inputs and outputs**: what it receives and what it produces
-- **Authority sources**: which external knowledge bases back this domain
-- **Evaluation scenarios**: what a correct output looks like
-- **Adjacent specialists**: who it hands off to or receives from
+- **`metadata`** — `agent_id`, `slug`, `name`, `domain_family` (e.g. `naics-overlays/aerospace-and-defense`), `specialty_boundary` (prose statement of what it owns and rejects), `status` (`validated` / etc.), `created_at`, `last_updated_at`
+- **`purpose`** — what the specialist is for
+- **`scope.supported_tasks`** — what this specialist handles, specifically
+- **`scope.common_inputs`** — what it receives to start work
+- **`scope.expected_outputs`** — what it produces
+- **`scope.out_of_scope_rules`** — what it refuses, plus orchestrator-return conditions (when it sends work back)
+- **`adjacent_specialties`** — who it hands off to or collaborates with
+- **`knowledge_baseline`** — the authoritative knowledge the domain draws from
+- **`freshness`** — `last_reviewed`, `review_interval_days`, `stale_after`, `status` (current / stale)
 
-When a chair loads a specialist definition, it gains all of this. The chair doesn't need to be told what questions to ask or what boundaries to respect — those are already defined in the catalog.
+When a chair loads a specialist definition, it gains all of this. The chair doesn't need to be told what questions to ask or what boundaries to respect — `supported_tasks`, `out_of_scope_rules`, and `specialty_boundary` already define them. `freshness.status` lets the chair flag when its backing knowledge has gone stale.
+
+> Schema note: top-level keys are `schema_version`, `kind: agent_definition`, `freshness`, `metadata`, `purpose`, `scope`, `adjacent_specialties`, `knowledge_baseline`. The resolver maps function descriptions onto `domain_family` + `supported_tasks`; it does not assume any field not in this list.
 
 ---
 
@@ -50,7 +54,7 @@ When a chair is activated and assigned work:
 
 1. The chair's specialist definitions are loaded from the labor-commons catalog (or from a local cache if running offline)
 2. The specialist's `supported_tasks`, `out_of_scope_rules`, and `expected_outputs` shape the chair's operating context
-3. The chair uses the specialist's `authority_sources` as the basis for its knowledge claims
+3. The chair uses the specialist's `knowledge_baseline` as the basis for its knowledge claims, and checks `freshness.status` to flag stale backing knowledge
 4. If a task falls outside all loaded specialists' `supported_tasks`, the chair escalates rather than guesses
 
 ### Catalog Sync
@@ -76,14 +80,15 @@ interface SpecialistQuery {
 }
 
 interface SpecialistMatch {
-  specialist_slug: string;
-  catalog_path: string;            // e.g., "catalog/naics-overlays/healthcare/..."
-  display_name: string;
-  domain: string;
+  specialist_slug: string;         // metadata.slug
+  catalog_path: string;            // e.g., "catalog/naics-overlays/aerospace-and-defense/<slug>/spec.yaml"
+  display_name: string;            // metadata.name
+  domain_family: string;           // metadata.domain_family
   match_score: number;             // 0–100
-  task_coverage: number;           // 0–1, fraction of required tasks covered
-  scope_quality: "strong" | "adequate" | "weak";
-  authority_sources: string[];
+  task_coverage: number;           // 0–1, fraction of required tasks covered by scope.supported_tasks
+  boundary_quality: "strong" | "adequate" | "weak";  // from specialty_boundary + out_of_scope_rules
+  knowledge_baseline: string[];    // knowledge_baseline entries
+  freshness_status: "current" | "stale";             // freshness.status
   gap_tasks: string[];             // required tasks not covered by this specialist
 }
 

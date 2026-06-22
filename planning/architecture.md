@@ -30,8 +30,10 @@ Mother-board is a working implementation with sound core infrastructure. The fol
 | Approval routing | In collective mode, routes decisions above threshold to membership vote rather than single operator |
 | Collective governance layer | New: member voting, consensus protocols, amendment workflows, contribution tracking |
 | Board orchestration | Chair routing uses labor-commons specialist capabilities instead of hardcoded domain capability lists |
-| Chat interpreter | Reoriented to commons-crew integration rather than standalone board chat |
-| UI | Simplified; commons-crew is the primary human interface; board UI is secondary (admin/audit view) |
+| Chat interpreter | Carried as commons-board's own primary human interface; rewired to draw chair capabilities from labor-commons specialists |
+| UI | Carried as the primary oversight/audit surface; commons-crew bridge is an optional add-on, not the main interface |
+| Provider/inference | New settings subsystem: pluggable inference providers (hosted API, harness/console, local) selectable per deployment; credentials injected at runtime, never in-repo |
+| Auth/RBAC | Carried; exposed as operator-controllable settings |
 
 ## What Is Reframed (Not Removed)
 
@@ -64,7 +66,14 @@ commons-board/
 │   │   │   │   ├── governance-signing.ts
 │   │   │   │   ├── runtime-receipts.ts
 │   │   │   │   ├── collective-governance.ts    ← new
-│   │   │   │   └── labor-commons-client.ts     ← new
+│   │   │   │   ├── treasury.ts                  ← new (collective economics)
+│   │   │   │   ├── monetization.ts              ← inverted from billing.ts (business)
+│   │   │   │   ├── labor-commons-client.ts      ← new
+│   │   │   │   └── provider/                    ← new (inference adapters)
+│   │   │   │       ├── index.ts                 (provider interface)
+│   │   │   │       ├── hosted-api.ts            (hosted API adapter)
+│   │   │   │       ├── harness-console.ts       (console/harness adapter)
+│   │   │   │       └── local-inference.ts       (local adapter)
 │   │   │   ├── routes/
 │   │   │   │   ├── interview.ts
 │   │   │   │   ├── execution.ts
@@ -73,13 +82,16 @@ commons-board/
 │   │   │   │   ├── artifacts.ts
 │   │   │   │   ├── decision-logs.ts
 │   │   │   │   ├── org.ts
+│   │   │   │   ├── settings.ts                 ← new (provider + RBAC + prefs)
+│   │   │   │   ├── monetization.ts             ← new (business mode)
+│   │   │   │   ├── treasury.ts                 ← new (collective mode)
 │   │   │   │   ├── federation.ts
-│   │   │   │   ├── crew-bridge.ts              ← new
-│   │   │   │   └── membership.ts               ← new (collective mode)
+│   │   │   │   ├── membership.ts               ← new (collective mode)
+│   │   │   │   └── crew-bridge.ts              ← new (optional integration)
 │   │   │   └── services/
 │   │   │       ├── board-orchestration.ts
 │   │   │       ├── org-compiler.ts
-│   │   │       ├── chat-interpreter.ts
+│   │   │       ├── chat-interpreter.ts          (primary human interface)
 │   │   │       ├── reasoning-loop.ts
 │   │   │       └── specialist-resolver.ts      ← new
 │   ├── agent-runtime/            Interview, launch, execution engine
@@ -101,18 +113,18 @@ commons-board/
 ## Service Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              commons-crew (human entry point)            │
-│         PA routes organizational requests here           │
-└──────────────────────┬──────────────────────────────────┘
-                       │ crew-bridge API
-┌──────────────────────▼──────────────────────────────────┐
-│              API Gateway (Express, port 4000)            │
-│  Authentication, verification policy, rate limiting      │
-└────┬──────┬──────┬──────┬──────┬──────┬─────────────────┘
-     │      │      │      │      │      │
- Interview  Exec  Aprv  Caden  Org  Crew-Bridge
-     │      │      │      │      │      │
+┌──────────────────────────┐      ┌──────────────────────────────┐
+│  commons-board own UI +   │      │  commons-crew PA (optional)   │
+│  chat interpreter (PRIMARY)│      │  via crew-bridge (convenience)│
+└─────────────┬─────────────┘      └───────────────┬──────────────┘
+             │                                     │ crew-bridge API
+┌─────────────▼─────────────────────────────────────▼──────────────┐
+│              API Gateway (Express, port 4000)                     │
+│  Authentication/RBAC, verification policy, rate limiting          │
+└────┬──────┬──────┬──────┬──────┬──────┬──────┬───────────────────┘
+     │      │      │      │      │      │      │
+ Interview  Exec  Aprv  Caden  Org  Settings  Crew-Bridge(opt)
+     │      │      │      │      │      │      │
      └──────┴──────┴──────┴──────┴──────┘
                        │
           ┌────────────▼────────────┐
@@ -245,13 +257,23 @@ See [labor-commons-integration.md](labor-commons-integration.md) for full spec. 
 
 ---
 
-## Commons-Crew Bridge
+## Provider & Settings Subsystem
 
-Commons-crew (the personal assistant runtime) integrates with commons-board through a dedicated bridge endpoint:
+commons-board's reasoning runs through configurable inference providers. A settings service exposes provider selection and operator-controllable configuration (including RBAC settings).
 
-`POST /api/v1/crew-bridge/intent` — accepts a structured intent from commons-crew PA, routes it to the appropriate board function (get weekly brief, surface approvals, check org status, trigger cadence, etc.), returns structured result back to PA for presentation to the user.
+- **Provider abstraction** (`services/api/src/lib/provider/`) — one interface, multiple adapters: hosted API providers, harness/console-based providers, and local inference. The active provider is chosen in settings, switchable per deployment.
+- **Settings service** (`routes/settings.ts`) — provider selection, RBAC configuration, autonomy/cadence preferences surfaced to the operator, feature toggles.
+- **Credential boundary** — the repo contains provider *adapters and configuration shape*, never usable secrets. Keys and endpoints for the selected provider are deployment-specific settings injected at runtime (env/secret store), consistent with the OLF rule that no API keys live in any OLF repo.
 
-The bridge is authenticated per-workspace. Commons-board does not expose a general-purpose chat interface — that is commons-crew's job. Commons-board exposes structured organizational operations.
+This subsystem is foundational: the interview (Phase 2) and all chair reasoning (Phase 5) call inference through it.
+
+## Commons-Crew Bridge (Optional)
+
+commons-board is fully usable through its own interface. The crew-bridge is an **optional convenience** for users already working inside the commons-crew personal assistant — it is not the primary surface and is not required.
+
+`POST /api/v1/crew-bridge/intent` — accepts a structured intent from a commons-crew PA, routes it to the appropriate board function (get brief, surface approvals, check status, cast vote, trigger cadence, etc.), and returns a structured result for PA presentation.
+
+The bridge is authenticated per-workspace. commons-board also exposes its own chat interpreter and web UI as the primary human surfaces; the bridge simply offers a second door for people already in commons-crew.
 
 ---
 
