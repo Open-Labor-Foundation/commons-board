@@ -1,8 +1,60 @@
 # commons-board — Execution Plan
 
+This is the full implementation plan for migrating mother-board into commons-board. Every capability in the mother-board codebase migrates. Nothing is deferred. On top of the migration, commons-board adds the OLF layer: labor-commons integration, collective governance, collective economics, and the commons-crew bridge.
+
+This plan is ready to execute directly after approval. Each phase lists the exact source files to carry, the new files to author, the routes, the database changes, and the acceptance criteria.
+
+---
+
 ## Source Material
 
-The implementation carries core infrastructure from the mother-board pre-OLF codebase. The source is at `/Users/john/Documents/Projects/Pre-OLF/mother-board`. All source material must be sanitized before landing in this repo — no pre-OLF repo names, no pre-OLF branding, no commercialization scaffolding.
+Source: `/Users/john/Documents/Projects/Pre-OLF/mother-board/mother-board/`
+
+All source must be sanitized before it lands in this repo. See [Sanitization Rules](#sanitization-rules) at the end. Sanitization is a transformation, not a removal of capability — every behavior migrates; only pre-OLF naming, branding, and the platform-subscription billing concept (which does not exist in OLF) are rewritten.
+
+---
+
+## Component Inventory → Phase Map
+
+Every mother-board source component and its destination phase:
+
+| Mother-board source | Phase |
+|---|---|
+| `lib/db.ts`, `lib/db-migrate.ts`, `db/migrations/0001–0009` | Phase 1 |
+| `lib/store.ts`, `lib/artifacts.ts` | Phase 1 |
+| `lib/motherboard-signing.ts`, `lib/runtime-receipts.ts` | Phase 1 |
+| `lib/auth.ts`, `lib/security.ts`, `lib/http-security.ts`, `lib/cors.ts`, `lib/redaction.ts`, `lib/request-context.ts`, `lib/container-policy.ts`, `lib/alerts.ts` | Phase 1 |
+| `agent-runtime/interview/*`, `routes/interview.ts`, `routes/onboarding.ts` | Phase 2 |
+| `agent-runtime/launch/*`, `routes/launch.ts` | Phase 8 |
+| `routes/artifacts.ts`, `routes/workspace.ts` | Phase 2 |
+| labor-commons client + specialist resolver (new) | Phase 3 |
+| `lib/verification-policy.ts`, `routes/approvals.ts`, `routes/decision-log.ts` | Phase 4 |
+| collective-governance (new) | Phase 4 |
+| `lib/board-orchestration.ts`, `services/org-compiler.ts`, `services/board-synthesizer.ts` | Phase 5 |
+| `services/chair-reasoning.ts`, `services/reasoning-loop.ts`, `services/rd-orchestrator.ts` | Phase 5 |
+| `services/chat-interpreter.ts`, `services/chat-routing-registry.ts`, `services/board-interpretation-schema.ts`, `services/board-session-state.ts` | Phase 5 |
+| `services/model-native-*` (all 10), `services/domain-validation.ts` | Phase 5 |
+| `services/exception-triage.ts`, `services/compensation-analysis.ts` | Phase 5 |
+| `routes/motherboard.ts`, `routes/motherboard-chat.ts`, `routes/simulation-board.ts` | Phase 5 |
+| `lib/operational-loop.ts`, `agent-runtime/execution/*`, `routes/execution.ts` | Phase 6 |
+| `services/runtime-adapter.ts`, `services/child-runtime-client.ts` | Phase 6 |
+| `workers/cadence.ts`, `routes/cadence.ts`, `routes/brief-templates.ts` | Phase 7 |
+| `services/business-intelligence*.ts`, `routes/business-intelligence.ts`, `routes/observability.ts`, `routes/events.ts` | Phase 7 |
+| `services/devloop/*`, `routes/devloop.ts`, `services/cli-task-spec.ts` | Phase 8 |
+| `agent-runtime/launch/*`, company creation artifacts (migration 0003) | Phase 8 |
+| `routes/level4.ts`, `services/model-native-level4.ts` | Phase 9 |
+| `packages/connectors/real-connectors.ts`, monetization connectors | Phase 9 |
+| `routes/autonomous-company.ts` (migration 0005) | Phase 10 |
+| market feedback, experiment evolution, capital allocation engines | Phase 10 |
+| `routes/billing.ts` (inverted: the subscription/plan/entitlement engine becomes a business-mode capability to bill the org's *own* customers) | Phase 11 |
+| business monetization (inverted billing engine) + collective treasury (new) | Phase 11 |
+| crew-bridge (new) | Phase 12 |
+| `routes/feedback.ts`, `routes/evals.ts`, `routes/demo.ts` | Phase 12 |
+| `apps/web/*` | Phase 13 |
+| federation / portfolio (extends `child-runtime-client.ts`) | Phase 14 |
+| `routes/webhooks.ts`, `packages/connectors/*`, `lib/` connector vault | Phase 15 |
+| `services/testing-agent/*` | Phase 16 (and incrementally per phase) |
+| HR agent + per-person analytics (gated, disabled by default) | Phase 5 (capability) / governed throughout |
 
 ---
 
@@ -10,391 +62,463 @@ The implementation carries core infrastructure from the mother-board pre-OLF cod
 
 ### Phase 1 — Foundation
 
-**Goal:** Establish the repo, monorepo structure, and core infrastructure. Everything that runs before a user has ever touched the system.
+**Goal:** Repo, monorepo, persistence, and the immutable governance substrate. Everything that exists before a user touches the system.
 
-**What gets built:**
+**Carry + sanitize from mother-board:**
+- `lib/db.ts`, `lib/db-migrate.ts` — PostgreSQL driver and migration runner
+- `db/migrations/0001_init.sql` through `0009_runtime_ops.sql` — all 9 migrations
+- `lib/store.ts` — versioned artifact records, decision log entries, approval records, execution modes, meetings, action ledger
+- `lib/artifacts.ts` — artifact type definitions and validators
+- `lib/motherboard-signing.ts` → `lib/governance-signing.ts` — HMAC-SHA256 signing, keyring, key rotation (renamed)
+- `lib/runtime-receipts.ts` — hash-chained execution receipts and chain verification
+- `lib/auth.ts`, `lib/security.ts`, `lib/http-security.ts`, `lib/cors.ts` — auth, RBAC, security headers, CORS
+- `lib/redaction.ts` — token/secret redaction in logs
+- `lib/request-context.ts` — correlation IDs
+- `lib/container-policy.ts`, `lib/alerts.ts` — runtime policy and alerting
 
-1. **Monorepo scaffold**
-   - `package.json` (workspace root)
-   - `tsconfig.base.json`
-   - `services/api/`, `services/agent-runtime/`, `services/workers/`, `services/testing-agent/`
-   - `apps/web/`
-   - `packages/connectors/`, `packages/shared/`
-   - `.github/` (workflows, PR template, issue labels)
-   - `Dockerfile`, `docker-compose.yml`
+**Author new:**
+- `packages/shared/src/types/` — all artifact types (6 governing artifacts), Action object, GovernanceEvent, DecisionLogEntry, SpecialistResolution types
+- Monorepo scaffold: workspace `package.json`, `tsconfig.base.json`, service skeletons, `Dockerfile`, `docker-compose.yml`, `.github/`
+- `services/api/src/index.ts` — gateway: auth middleware, health endpoint, redacted logging, correlation IDs, error handling
 
-2. **Shared types** (`packages/shared/`)
-   - Artifact types for all 6 governing artifacts
-   - Action object type (agent_id, action_type, evidence, assumptions, risk_score, impact_range, approvals_required, rollback_plan)
-   - Governance event type
-   - Decision log entry type
-   - Specialist resolution types
+**Database:** migrations 0001–0009 carried; add `0010_governance_mode.sql` (orgs.governance_mode), `0011_collective.sql` (members, votes, amendments, contributions), `0012_catalog.sql` (catalog_refs, catalog_gaps), `0013_treasury.sql` (treasury accounts, distributions).
 
-3. **Artifact store** (`services/api/src/lib/artifact-store.ts`)
-   - Versioned artifact records (carried and sanitized from mother-board)
-   - JSON schema validation for all 6 artifact types
-   - Version history preservation
-   - Artifact write = governance event
-
-4. **PostgreSQL schema and migrations**
-   - Migration 0001: artifacts (id, org_id, type, payload, version, created_at, governance_event_id)
-   - Migration 0002: governance_events (id, org_id, event_type, artifact_id, signed_payload, at)
-   - Migration 0003: decision_log (id, org_id, entry, signed_at, chain_hash)
-   - Migration 0004: approval_records (id, org_id, action_id, status, required_approvers, responses)
-   - Migration 0005: orgs (id, governance_mode, created_at)
-   - Migration 0006: members (id, org_id, role, joined_at) — collective mode
-   - Migration 0007: votes (id, org_id, decision_id, member_id, choice, cast_at) — collective mode
-   - Migration 0008: catalog_gaps (id, org_id, function_description, gap_id, resolved_at)
-   - Migration 0009: catalog_refs (id, org_id, chair_id, specialist_slug, catalog_path, pinned_ref)
-
-5. **Governance signing** (`services/api/src/lib/governance-signing.ts`)
-   - HMAC-SHA256 payload signing (carried and sanitized)
-   - Keyring management with key rotation
-   - Per-workspace signing keys
-
-6. **Runtime receipts** (`services/api/src/lib/runtime-receipts.ts`)
-   - Hash-chained execution receipts (carried and sanitized)
-   - Chain integrity verification
-
-7. **Decision log** (append-only, hash-chained, carried and sanitized)
-
-8. **Basic API gateway** (`services/api/src/index.ts`)
-   - Authentication middleware
-   - Health endpoint
-   - Redacted request logging
-   - Correlation IDs
-   - Error handling
-
-**Acceptance criteria for Phase 1:**
-- Monorepo builds clean with no TypeScript errors
-- PostgreSQL migrations run without error
-- Artifact store can write, read, and version all 6 artifact types
-- Governance signing produces valid signed payloads
-- Runtime receipts chain correctly
-- Health endpoint returns 200
-- Docker container builds and starts
+**Acceptance:**
+- Monorepo builds clean, zero TS errors
+- All migrations apply without error
+- Artifact store writes/reads/versions all 6 artifact types with schema validation
+- Governance signing produces valid signed payloads; receipts chain correctly
+- Health endpoint returns 200; Docker container builds and starts
 
 ---
 
-### Phase 2 — Onboarding Interview and Artifact Generation
+### Phase 2 — Onboarding Interview & Artifact Generation
 
-**Goal:** A user can run the interview and have all governing artifacts generated correctly for both governance modes.
+**Goal:** A user completes the interview and all governing artifacts are generated for both governance modes.
 
-**What gets built:**
+**Carry + sanitize:**
+- `agent-runtime/interview/state-machine.ts`, `interview/types.ts`, `interview/generate-artifacts.ts` — the 8-section discovery interview
+- `routes/interview.ts`, `routes/onboarding.ts` — interview lifecycle endpoints
+- `routes/artifacts.ts`, `routes/workspace.ts` — artifact CRUD and workspace management
 
-1. **Interview state machine** (`services/agent-runtime/src/interview.ts`)
-   - Carried and sanitized from mother-board, rewritten for governance_mode detection
-   - Section sequence:
-     - Section 0: Mode detection (business vs. collective — from first exchange, not an explicit question)
-     - Section 1: Org identity (name, description, industry)
-     - Section 2: Goals and objectives
-     - Section 3: Risk appetite and autonomy comfort
-     - Section 4: Operating cadence preferences
-     - Section 5: Functions and chairs needed
-     - Section 6 (collective only): Membership structure and voting preferences
-   - At end of each section: state is persisted; interview is resumable
-   - After all sections: generates `artifact_draft` for review before finalization
+**Author new / modify:**
+- Add **Section 0: governance_mode detection** (business vs. collective) inferred from first exchange, not asked outright
+- Add **collective structure section** (collective mode only) → `collective_config.json`
+- Extend artifact generation to emit `governance_mode` in `business_profile.json`
+- `lib/model-client.ts` — thin LLM abstraction for interview conversation, artifact draft generation, brief writing. **Never** used for approvals, audit, risk classification, or permission checks (hard boundary from `decisions.md`)
 
-2. **Artifact generation** (`services/agent-runtime/src/artifact-generator.ts`)
-   - Takes completed interview state → generates all applicable artifacts
-   - Validates each artifact against JSON schema
-   - Writes artifacts to store as governance events
-   - Returns draft artifacts for confirmation before activation
+**Routes:**
+- `POST /api/v1/interview/start`
+- `POST /api/v1/interview/:id/respond`
+- `GET /api/v1/interview/:id/state`
+- `POST /api/v1/interview/:id/confirm` — confirms draft artifacts, activates org
 
-3. **Confirmation flow** (`services/api/src/routes/interview.ts`)
-   - `POST /api/v1/interview/start` — initiates interview
-   - `POST /api/v1/interview/:id/respond` — submits a section response
-   - `GET /api/v1/interview/:id/state` — returns current interview state
-   - `POST /api/v1/interview/:id/confirm` — confirms draft artifacts and activates org
-
-4. **Model integration** (`services/api/src/lib/model-client.ts`)
-   - Thin abstraction over the LLM provider
-   - Used for: interview conversation, artifact draft generation, brief writing
-   - NOT used for: approval decisions, audit log, risk classification, permission checks
-
-**Acceptance criteria for Phase 2:**
-- Interview runs to completion for business mode — all 5 core artifacts generated correctly
-- Interview runs to completion for collective mode — all 6 artifacts generated correctly
-- Draft artifacts are presented for review before activation
-- Confirmation activates the org
+**Acceptance:**
+- Business mode produces all 5 core artifacts; collective mode produces all 6
+- Draft artifacts shown for review before activation; confirmation activates org
 - Interview is resumable after interruption
-- Artifacts fail to write if JSON schema validation fails
+- Artifact write fails on schema validation failure
 
 ---
 
-### Phase 3 — Specialist Resolution and Chair Staffing
+### Phase 3 — Specialist Resolution & Chair Staffing
 
-**Goal:** After artifact generation, each chair in `agent_blueprint.json` is staffed with appropriate labor-commons specialists. This is the integration point that distinguishes commons-board from mother-board.
+**Goal:** Every chair in `agent_blueprint.json` is staffed with labor-commons specialists. This is the defining commons-board capability. Full spec in [labor-commons-integration.md](labor-commons-integration.md).
 
-**What gets built:**
+**Author new:**
+- `lib/labor-commons-client.ts` — remote (GitHub API) and local (clone) modes; `getSpecialist`, `searchSpecialists`, `listByDomain`, `checkForUpdates`, `reportGap`; file-based cache
+- `services/specialist-resolver.ts` — function description → ranked specialist matches (domain alignment, task coverage, scope quality, authority quality); writes gap records
+- `workers/catalog-sync.ts` — weekly check of unpinned refs for catalog updates; surfaces notifications
 
-1. **Labor-commons client** (`services/api/src/lib/labor-commons-client.ts`)
-   - Remote mode: reads from GitHub API against labor-commons repo, caches locally
-   - Local mode: reads from local clone, configurable path
-   - Methods: `getSpecialist`, `searchSpecialists`, `listByDomain`, `checkForUpdates`, `reportGap`
-   - Cache: file-based, keyed by specialist slug + catalog ref
+**Routes:**
+- `POST /api/v1/org/resolve-specialists`
+- `GET /api/v1/org/specialist-matches`
+- `POST /api/v1/org/confirm-specialists`
+- `PUT /api/v1/org/chairs/:chair_id/specialists`
+- `POST /api/v1/org/gaps/:gap_id/submit` — opens a labor-commons GitHub issue
 
-2. **Specialist resolver** (`services/api/src/services/specialist-resolver.ts`)
-   - Takes function description + industry context from interview
-   - Queries labor-commons for matching specialists
-   - Scores and ranks matches (domain alignment, task coverage, scope quality, authority quality)
-   - Returns ranked resolution for operator/collective review
-   - Writes gap records when no match found
+**Database:** `catalog_refs`, `catalog_gaps` (from migration 0012).
 
-3. **Chair staffing route** (`services/api/src/routes/org.ts`)
-   - `POST /api/v1/org/resolve-specialists` — triggers specialist resolution for all chairs
-   - `GET /api/v1/org/specialist-matches` — returns proposed matches for review
-   - `POST /api/v1/org/confirm-specialists` — accepts selections, updates `agent_blueprint.json`
-   - `PUT /api/v1/org/chairs/:chair_id/specialists` — operator overrides a chair's specialists
-
-4. **Gap reporting**
-   - Gaps written to `catalog_gaps` table
-   - Gap notification surfaced via crew-bridge and cadence
-   - `POST /api/v1/org/gaps/:gap_id/submit` — operator submits gap to labor-commons (opens GitHub issue)
-
-5. **Catalog sync worker** (`services/workers/src/catalog-sync.ts`)
-   - Runs weekly (configurable)
-   - For each unpinned specialist ref, checks for catalog updates
-   - Surfaces update notifications to operator/collective
-   - Applies accepted updates; rejects or ignores declined updates
-
-**Acceptance criteria for Phase 3:**
-- Specialist resolver returns ranked matches for any function description in labor-commons scope
-- Gaps are recorded when no match is found
-- Operator can override any specialist selection
-- Confirmed selections are persisted in `agent_blueprint.json` via artifact versioning
-- Catalog sync runs without error; surfaces real updates
-- Labor-commons client falls back to local cache when remote is unavailable
+**Acceptance:**
+- Resolver returns ranked matches for any in-catalog function; records gaps when none found
+- Operator can override any selection; confirmed selections persist in `agent_blueprint.json` via versioning
+- Catalog sync surfaces real updates; client falls back to local cache when remote unavailable
 
 ---
 
-### Phase 4 — Governance Engine and Approval Workflow
+### Phase 4 — Governance Engine & Approval Workflow
 
-**Goal:** Actions generated by the board route correctly through the governance layer. Business mode routes to the operator. Collective mode routes to the membership when threshold is crossed.
+**Goal:** Board-generated actions route correctly through governance. Business mode → operator. Collective mode → membership vote above threshold.
 
-**What gets built:**
+**Carry + sanitize:**
+- `lib/verification-policy.ts` — action type → approval requirement matrix; risk-based escalation (score 85+ → dual); blast-radius escalation
+- `routes/approvals.ts` — approval queue and decisions
+- `routes/decision-log.ts` — append-only, hash-chained audit ledger
 
-1. **Verification policy** (`services/api/src/lib/verification-policy.ts`)
-   - Carried and sanitized from mother-board
-   - Action types → approval requirements mapping
-   - Risk-based escalation (score 85+ → dual approval)
-   - Blast radius escalation
+**Author new:**
+- `lib/collective-governance.ts` — decision routing to member vote above threshold; vote open/collect/resolve at quorum or deadline; amendment workflow (proposal → notice → vote → artifact update); contribution tracking per `collective_config.json`
 
-2. **Approval workflow** (`services/api/src/routes/approvals.ts`)
-   - `GET /api/v1/approvals` — list pending approvals
-   - `POST /api/v1/approvals/:id/approve` — operator approval
-   - `POST /api/v1/approvals/:id/reject` — operator rejection
-   - Approvals include: evidence, assumptions, impact range, risk score, rollback plan
+**Routes:**
+- `GET /api/v1/approvals`, `POST /api/v1/approvals/:id/approve`, `POST /api/v1/approvals/:id/reject`
+- `POST /api/v1/votes`, `POST /api/v1/votes/:id/cast`, `GET /api/v1/votes`, `GET /api/v1/votes/:id`
+- `POST /api/v1/amendments`, `GET /api/v1/amendments/:id`
 
-3. **Collective governance layer** (`services/api/src/lib/collective-governance.ts`) — new
-   - Decision routing: for decisions above threshold, creates a member vote instead of operator approval
-   - Vote management: open vote, collect responses, resolve at deadline or quorum
-   - `POST /api/v1/votes` — collective-mode only; creates a vote for a pending decision
-   - `POST /api/v1/votes/:id/cast` — cast a vote
-   - `GET /api/v1/votes` — list open votes
-   - `GET /api/v1/votes/:id` — vote detail and current tally
-   - Amendment workflow: proposal → notice period → vote → artifact update
-   - Contribution tracking: member actions recorded per `collective_config.json` settings
+**Database:** `votes`, `amendments`, `contributions` (from migration 0011).
 
-4. **Execution engine** (`services/agent-runtime/src/execution.ts`)
-   - Carried and sanitized from mother-board
-   - Produces Action objects with governor decision (auto_approved / requires_approval / blocked)
-   - Writes to decision log before execution
-   - SIM mode: logs side effects but does not execute
-   - LIVE mode: executes within policy; routes to approval if required
-
-**Acceptance criteria for Phase 4:**
-- Business mode: actions above threshold route to operator approval queue
-- Collective mode: actions above threshold route to member vote
-- Votes resolve correctly at quorum or deadline
-- SIM mode produces identical governance trail as LIVE mode but no external side effects
+**Acceptance:**
+- Business mode routes above-threshold actions to operator; collective mode routes to member vote
+- Votes resolve correctly at quorum or deadline; amendments update artifacts only after passing
 - Decision log entries are append-only and hash-chained
-- Autonomy mode transitions require explicit operator/member action (system never self-promotes)
+- Autonomy mode is never self-promoted by the system
 
 ---
 
-### Phase 5 — Cadence Operations
+### Phase 5 — Board Orchestration & Reasoning
 
-**Goal:** The board operates on schedule. Daily pulses, weekly briefs, monthly reviews.
+**Goal:** The full chair model: chairs reason in their domains, route work, synthesize board-level output, and interpret human intent. This is the largest carry — the cognitive core of mother-board.
 
-**What gets built:**
+**Carry + sanitize:**
+- `lib/board-orchestration.ts` — domain→chair mapping, routing, relevance scoring (rewired to draw capabilities from labor-commons specialists rather than hardcoded domain lists)
+- `services/org-compiler.ts` — compiles org blueprint into chair/department/team structure
+- `services/board-synthesizer.ts` — synthesizes chair inputs into board recommendations
+- `services/chair-reasoning.ts` — per-chair domain reasoning
+- `services/reasoning-loop.ts` — planner/critic/executor/memory scaffolding
+- `services/rd-orchestrator.ts` — R&D / cross-domain orchestration
+- `services/chat-interpreter.ts`, `services/chat-routing-registry.ts`, `services/board-interpretation-schema.ts`, `services/board-session-state.ts` — human language → structured board intent → routed task specs (per `motherboard-chat-interpreter-implementation-plan.md`)
+- `services/model-native-*` — all 10: router, semantic-judge, semantics, split-domains, chair-targeting, exception-triage, org-action, response-verification, business-insights, level4
+- `services/domain-validation.ts` — domain boundary validation
+- `services/exception-triage.ts` — triages and remediates execution exceptions
+- `services/compensation-analysis.ts` — compensation modeling (HR capability; gated by `hr_agent_enabled`)
+- `routes/motherboard.ts`, `routes/motherboard-chat.ts`, `routes/simulation-board.ts` — board chat ingress and SIM board
 
-1. **Cadence workers** (`services/workers/src/`)
-   - Daily worker: triggers daily pulse generation; routes to delivery targets in `cadence_protocol.json`
-   - Weekly worker: triggers executive brief from all chairs; aggregates KPI status, risks, recommendations; routes to delivery
-   - Monthly worker: triggers strategic review; surfaces objective progress, governance health, gap status
+**Author new / modify:**
+- Rewire `board-orchestration.ts` and `chair-reasoning.ts` to load chair operating context from labor-commons specialist definitions (supported_tasks, out_of_scope_rules, authority_sources)
+- HR agent + per-person analytics migrate as **gated capabilities**, disabled by default per `autonomy_policy.json` (`hr_agent_enabled: false`, `per_person_analytics_enabled: false`)
 
-2. **Brief generation** (`services/api/src/services/board-synthesizer.ts`)
-   - Carried and sanitized from mother-board
-   - Compiles chair inputs into unified executive brief
-   - Incorporates KPI status from `objective_config.json`
-   - Flags items requiring operator or member attention
-
-3. **Connector routing** (`packages/connectors/`)
-   - Slack connector: post to whitelisted channels (carried from mother-board)
-   - Crew-bridge delivery: push to commons-crew PA for presentation to user
-   - Email delivery: stub in Phase 5, full implementation in Phase 7
-
-4. **Cadence schedule** (`services/workers/src/scheduler.ts`)
-   - Reads `cadence_protocol.json` per org
-   - Schedules workers against configured times and days
-   - Handles timezone conversion
-   - Recovers gracefully if a run is missed
-
-**Acceptance criteria for Phase 5:**
-- Daily pulse generates and delivers on schedule
-- Weekly brief aggregates all chair inputs and delivers on schedule
-- Monthly review generates on schedule
-- Delivery respects `cadence_protocol.json` settings (channel whitelist, delivery targets)
-- Missed runs do not cause cascading failures
+**Acceptance:**
+- Chairs route work by relevance using specialist-derived capabilities
+- Chat interpreter converts human input to structured intent and routes to the correct chair/flow
+- Board synthesizer produces a unified board view from multi-chair input
+- SIM board runs a full board cycle with no external side effects
+- HR/per-person analytics remain disabled unless explicitly enabled in policy
 
 ---
 
-### Phase 6 — Commons-Crew Bridge
+### Phase 6 — Execution & Runtime
 
-**Goal:** commons-crew can invoke commons-board operations on behalf of the user. The user never directly interacts with commons-board's API.
+**Goal:** Actions execute through the governed runtime with SIM/LIVE modes, the operational loop state machine, and child-runtime linkage.
 
-**What gets built:**
+**Carry + sanitize:**
+- `lib/operational-loop.ts` — stage machine (operation → verification → rnd/governance → governance → deployment); bottleneck tracking; checkpoint artifacts with hash-chaining
+- `agent-runtime/execution/engine.ts`, `execution/types.ts` — execution engine producing Action objects with governor decision (auto_approved / requires_approval / blocked); decision log book; SIM (log only) and LIVE (policy-gated) modes
+- `routes/execution.ts` — execution trigger and status
+- `services/runtime-adapter.ts` — Docker / noop / local runtime abstraction
+- `services/child-runtime-client.ts` — child runtime lifecycle (start/stop/status), hash-chained transfer manifest signing
 
-1. **Crew-bridge endpoint** (`services/api/src/routes/crew-bridge.ts`)
-   - `POST /api/v1/crew-bridge/intent` — accepts structured intent from commons-crew PA; routes to board function; returns structured result
-   - Intent types:
-     - `get_status` — org health, active approvals, open votes
-     - `get_brief` — latest weekly brief or on-demand brief
-     - `list_approvals` — pending approvals for this operator/collective
-     - `submit_approval` — operator approves or rejects a pending action
-     - `cast_vote` — collective member casts a vote
-     - `trigger_cadence` — manual trigger of a cadence run
-     - `get_decision_log` — recent decision log entries
-     - `get_gaps` — current catalog gaps
-
-2. **Authentication** — crew-bridge uses a workspace-scoped bearer token; commons-crew is issued a token during org setup; token is stored in commons-crew's secure config, not in the commons-board database directly
-
-3. **Result packaging** — bridge responses are structured for PA presentation (summary + detail + action items); PA voice handles rendering, not the bridge response
-
-**Acceptance criteria for Phase 6:**
-- All intent types route correctly and return expected response shapes
-- Authentication blocks unauthenticated requests
-- Bridge handles commons-board being unavailable gracefully (returns degraded status, not error)
-- PA can surface all pending human actions (approvals, votes) in a single `get_status` call
+**Acceptance:**
+- Actions produce governor decisions and write to decision log **before** execution
+- SIM mode yields an identical governance trail to LIVE with no external writes
+- Operational loop transitions stages correctly and records checkpoints
+- Runtime adapter executes against Docker and noop targets
 
 ---
 
-### Phase 7 — Admin UI and Audit View
+### Phase 7 — Cadence Operations & Business Intelligence
 
-**Goal:** A secondary human interface for review, administration, and audit. Not the primary interaction surface — that is commons-crew — but needed for governance oversight and administration.
+**Goal:** The board operates on schedule and reports. Daily pulse, weekly brief, monthly review, plus BI, observability, and event streams.
 
-**What gets built:**
+**Carry + sanitize:**
+- `workers/cadence.ts` — daily/weekly/monthly triggers; brief building; Slack posting with backoff/retry
+- `routes/cadence.ts`, `routes/brief-templates.ts` — cadence control and brief templating
+- `services/business-intelligence.ts`, `services/business-intelligence-catalog.ts`, `routes/business-intelligence.ts` — BI synthesis and catalog
+- `routes/observability.ts`, `routes/events.ts` — observability and event streams
 
-1. **Next.js web application** (`apps/web/`)
-   - Carried and substantially simplified from mother-board
-   - Pages:
-     - Dashboard: org status, active approvals/votes, recent decisions, gap notifications
-     - Artifact viewer: read-only view of current governing artifacts with version history
-     - Decision log: full audit trail, filterable
-     - Chairs: chair list, specialist assignments, scope summaries
-     - Approvals: pending approval queue with action
-     - Votes (collective only): open votes, vote history, contribution records
-     - Gaps: catalog gap list with submit-to-labor-commons action
+**Author new:**
+- `workers/scheduler.ts` — reads `cadence_protocol.json` per org; timezone handling; missed-run recovery
+- Crew-bridge delivery target (full implementation in Phase 12; stub here)
 
-2. **Session management** — workspace-scoped session token; secure httpOnly cookie; no persistent user accounts in Phase 7 (single-operator business mode); multi-user access for collective mode added in Phase 8
-
-**Acceptance criteria for Phase 7:**
-- Dashboard loads and reflects current org state
-- Artifact viewer shows current and previous artifact versions
-- Decision log is browsable and filterable
-- Approval queue allows approve/reject with confirmation
-- Vote queue (collective mode) allows vote casting
-- No sensitive data (credentials, signing keys, tokens) exposed in UI responses
+**Acceptance:**
+- Daily/weekly/monthly runs generate and deliver on schedule per `cadence_protocol.json`
+- Delivery respects channel whitelist and delivery targets
+- BI surfaces KPI status from `objective_config.json`; missed runs don't cascade
 
 ---
 
-### Phase 8 — Federation and Multi-Org
+### Phase 8 — Company Creation & Devloop
 
-**Goal:** Parent-child organizational relationships. A sector cooperative governs local collectives. A multi-location business governs branches.
+**Goal:** Levels 1–3 of company creation (Design → Provision+Assist → Operate-with-caps) and the devloop product/project build engine. Full migration of `launch/*` and `devloop/*`.
 
-**What gets built:**
+**Carry + sanitize:**
+- `agent-runtime/launch/state-machine.ts`, `launch/types.ts`, `launch/generate-artifacts.ts` — launch interview producing `venture_profile.json`, `launch_plan.json`, `tooling_plan.json`, `financial_policy.json` (migration 0003)
+- `routes/launch.ts` — launch lifecycle
+- `services/devloop/*` — full devloop: `task-orchestrator.ts`, `planner-agent.ts`, `coding-agent.ts`, `reviewer-agent.ts`, `workspace-manager.ts`, `state-store.ts`, `artifact-store.ts`, `contracts.ts`, `specs.ts`, and all adapters (`github-api.ts`, `github-issue-provider.ts`, `linked-provider-api.ts`, `local-backlog-provider.ts`, `finalizers.ts`)
+- `routes/devloop.ts`, `services/cli-task-spec.ts` — devloop control and CLI task specs
 
-1. **Federation model** (`services/api/src/routes/federation.ts`)
-   - `POST /api/v1/federation/link` — establish parent-child relationship
-   - `GET /api/v1/federation/children` — list child orgs
-   - `GET /api/v1/federation/parent` — get parent org and inherited policies
-   - Policy floors: parent can set minimum values in child's `autonomy_policy.json` that cannot be overridden
-   - Governance handoff: hash-chained signed manifest on policy change
+**Author new:**
+- Launch Architect, Provisioning Agent, Growth Agent, Finance Guard as labor-commons-backed agents (per `company_creation_spec.md`)
+- Idempotent connector writes with rollback (provisioning) per company creation spec
 
-2. **Multi-user access for collective mode**
-   - Member accounts (simple, workspace-scoped)
-   - Role-based access: member, steward, coordinator
-   - Members can view decisions, cast votes, and see contribution records
-   - Stewards/coordinators can trigger cadence, submit approvals on behalf of the collective
-
-**Acceptance criteria for Phase 8:**
-- Parent-child relationship established and policy floors enforced
-- Child cannot override a policy floor set by parent
-- Policy changes at parent propagate to children with hash-chained governance record
-- Collective members can log in and cast votes from the web UI
+**Acceptance:**
+- Launch interview produces all 4 company-creation artifacts
+- Devloop runs product mode (local backlog → execution → artifacts) and project mode (issue provider → execution → PR artifacts) across GitHub/GitLab/Bitbucket/Azure DevOps/Gitea/local
+- Provisioning writes are idempotent with working rollback
 
 ---
 
-## What Is Out of Scope for v1
+### Phase 9 — Level 4 Autonomous Launcher
 
-These capabilities are designed in the mother-board spec but deferred from commons-board v1:
+**Goal:** Single prompt → launched, operating company. The four loops (Go Live, Acquire, Monetize, Operate) with real connectors. Full migration of `level4.ts` and real-connector hardening.
 
-| Capability | Why Deferred |
-|---|---|
-| Level 4 autonomous company launch (real Stripe, Vercel, Cloudflare integration) | Requires production-hardened connector idempotency and rollback; significant scope |
-| Outbound sales / email campaign engine | Out of scope for collectives; business mode addition in v2 |
-| Market feedback and experiment evolution engine | Requires meaningful operational history; add after orgs have been running |
-| HR agent and per-person analytics | Disabled by default; opt-in activation in v2 |
-| Mobile interface | Desktop-first; mobile in v2 once patterns are established |
-| Public SaaS hosting | All deployment is self-hosted; hosted offering is a separate product decision |
+**Carry + sanitize:**
+- `routes/level4.ts`, `services/model-native-level4.ts` — Level 4 orchestration
+- `packages/connectors/real-connectors.ts` — real connector implementations
 
----
+**Author new (per `level4_spec.md`):**
+- **Go Live loop:** domain (Cloudflare), landing page (Vercel), email (SendGrid), CRM, analytics (PostHog)
+- **Acquire loop:** ICP definition, prospect sourcing, outreach engine, meeting scheduling
+- **Monetize loop:** Stripe setup, checkout deployment, and the full commercial billing stack for the org's own customers — subscriptions, per-seat pricing, tiered plans, entitlements, recurring billing, and invoicing (the inverted `billing.ts` engine; see Phase 11 Business Monetization). This is the org's own revenue from its own customers, not any OLF platform charge.
+- **Operate loop:** weekly briefs, support triage, adaptive evolution
+- Idempotency + rollback for every external write; `financial_policy.json` caps enforced on all spend
+- Explicit non-goals enforced as hard blocks: no legal-entity automation, no bank account movement, no hiring/firing without approval, no paid ads without caps
 
-## Build Order Summary
-
-```
-Phase 1:  Foundation (monorepo, types, artifact store, DB, signing, receipts, gateway)
-Phase 2:  Onboarding interview and artifact generation (both governance modes)
-Phase 3:  Specialist resolution and chair staffing (labor-commons integration)
-Phase 4:  Governance engine and approval workflow (verification policy, collective voting)
-Phase 5:  Cadence operations (daily, weekly, monthly; connector routing)
-Phase 6:  Commons-crew bridge (intent routing, crew authentication)
-Phase 7:  Admin UI and audit view (Next.js, dashboard, artifact viewer, decision log)
-Phase 8:  Federation and multi-org (parent-child, policy floors, multi-user collective)
-```
-
-Phases 1–4 are prerequisites for each other and must be built in sequence.
-Phases 5 and 6 can proceed in parallel after Phase 4 is complete.
-Phase 7 can start after Phase 6 (requires bridge for real data).
-Phase 8 follows Phase 7.
+**Acceptance:**
+- A single prompt drives all four loops to a live, operating company in SIM and LIVE
+- Every external write is idempotent and reversible; spend caps enforced
+- Hard-blocked non-goals cannot execute even in autopilot
 
 ---
 
-## Source Sanitization Rules
+### Phase 10 — Autonomous Company Evolution
 
-All code carried from mother-board must be sanitized before commit:
+**Goal:** The company adapts. Market feedback, experiment evolution, capital allocation. Full migration of `autonomous-company.ts` (migration 0005) and `autonomous_company_master_spec.md`.
 
-- Remove all pre-OLF repo references (jkm-agents, jkm-agent-pa, mother-board branding)
-- Remove SaaS billing, subscription, and commercialization scaffolding
-- Remove Level 4 autonomous company launch connectors and routes (stub endpoints are acceptable)
-- Remove per-seat licensing and entitlement checks
-- Remove HR agent and per-person analytics (replace with disabled stubs that respect the `hr_agent_enabled` flag)
-- Replace all hardcoded domain type lists with labor-commons lookup
-- Update all documentation references to OLF stack (labor-commons, commons-crew, commons-board)
-- No credentials, keys, or tokens from pre-OLF sources
+**Carry + sanitize:**
+- `routes/autonomous-company.ts` — autonomous company lifecycle and state
+
+**Author new (per `autonomous_company_master_spec.md`):**
+- **Market feedback engine** — signal ingestion, `market_health_score`
+- **Experiment evolution engine** — auto-kill, auto-scale, pivot protocol
+- **Capital allocation engine** — budget allocation across experiments within `financial_policy.json` caps
+- Real-execution connectors (Cloudflare, Vercel, SendGrid, Stripe, HubSpot, PostHog) wired to evolution loops
+
+**Acceptance:**
+- Market signals ingest and compute `market_health_score`
+- Experiments auto-kill/auto-scale/pivot per defined thresholds
+- Capital allocation respects financial caps; all moves logged to decision log
+- Evolution decisions above threshold route through governance (operator or member vote)
 
 ---
 
-## Testing Requirements
+### Phase 11 — Org Economics
 
-Each phase must include tests before the next phase begins.
+**Goal:** The economic layer, with two symmetric, first-class halves. A business owner needs to run a real commercial venture exactly as much as a collective needs to run a cooperative. Both fully migrate; both are governed through the same approval and audit layer.
+
+The single deletion in the whole migration lives here and is *not* a business capability: OLF-as-vendor metering of commons-board itself (plan tiers gating `briefsPerMonth` / `agentRunsPerDay` / `connectorsEnabled`). OLF does not charge for the platform. Everything else in `billing.ts` is inverted and kept.
+
+#### 11a — Business Monetization (business mode)
+
+The full commercial billing engine, **inverted** from `billing.ts`: in mother-board it pointed inward (the workspace pays the vendor); here it points outward (the org's customers pay the org).
+
+**Carry + invert from mother-board:**
+- `routes/billing.ts` — subscription lifecycle, plan tiers, trials, upgrades, usage/entitlement metering. Inverted so the org defines and operates plans for *its own product*, and `limitsForPlan` (starter/pro/enterprise) becomes an owner-customizable plan template rather than an OLF-imposed plan.
+
+**Author new / modify:**
+- `lib/monetization.ts` — the org's commercial revenue engine: subscriptions, per-seat pricing, tiered plans, entitlement gating, recurring billing, one-time checkout, invoicing — all for the org's customers
+- Wire Stripe (and other processors) from Phase 9 Monetize / Phase 15 connectors
+- Entitlement enforcement gates the org's *product* features for the org's customers — never gates commons-board itself
+
+**Routes:**
+- `GET/POST /api/v1/monetization/plans` — define the org's product plans
+- `GET /api/v1/monetization/subscriptions`, `POST /api/v1/monetization/subscriptions` — the org's customer subscriptions
+- `GET /api/v1/monetization/usage` — the org's customer usage/entitlement state
+- `POST /api/v1/monetization/checkout`, `POST /api/v1/monetization/invoices`
+
+#### 11b — Collective Treasury (collective mode)
+
+The cooperative counterpart: pooled revenue and governed distribution.
+
+**Author new:**
+- `lib/treasury.ts` — pooled treasury accounts; inflow recording (from Monetize loop / external); distribution policy execution
+- `collective_economics.json` artifact (or extension of `financial_policy.json` for collective mode) — distribution model (equal-share / contribution-weighted / hybrid), reserve floors, payout cadence
+- Distribution engine — computes member payouts from contribution records (Phase 4) and treasury balance; routes distribution approval through collective governance
+
+**Routes:**
+- `GET /api/v1/treasury`, `POST /api/v1/treasury/distribute`, `GET /api/v1/treasury/distributions`
+
+**Database:** monetization (plans, subscriptions, invoices) and treasury (accounts, distributions) — from migration 0013.
+
+**Acceptance:**
+- **Business:** the org defines its own plans; customer subscriptions, per-seat, entitlements, recurring billing, and invoicing all operate; entitlement gating affects only the org's product, never commons-board
+- **Collective:** treasury records inflows; distribution computes correctly under equal-share and contribution-weighted models; every distribution routes through member vote and is logged immutably; reserve floors enforced
+- OLF never charges, meters, or gates the org's use of commons-board
+
+---
+
+### Phase 12 — Commons-Crew Bridge
+
+**Goal:** commons-crew invokes commons-board on the user's behalf. commons-crew is the human entry point; commons-board exposes structured operations, not a chat UI.
+
+**Carry + sanitize:**
+- `routes/feedback.ts`, `routes/evals.ts`, `routes/demo.ts` — feedback capture, evaluation, and demo flows (reused by the bridge for status/quality signals)
+
+**Author new:**
+- `routes/crew-bridge.ts` — `POST /api/v1/crew-bridge/intent` with intent types: `get_status`, `get_brief`, `list_approvals`, `submit_approval`, `cast_vote`, `trigger_cadence`, `get_decision_log`, `get_gaps`, `get_treasury`
+- Workspace-scoped bearer token auth issued at org setup
+- Result packaging structured for PA presentation (summary + detail + action items)
+
+**Acceptance:**
+- All intent types route correctly with expected response shapes
+- Auth blocks unauthenticated requests; bridge degrades gracefully when board is unavailable
+- A single `get_status` surfaces all pending human actions (approvals + votes + gaps + distributions)
+
+---
+
+### Phase 13 — Admin & Audit UI
+
+**Goal:** The secondary human surface for oversight, administration, and audit. Full migration of `apps/web`, simplified around the crew-first model.
+
+**Carry + sanitize:**
+- `apps/web/*` — Next.js app; `app/chairs/[chairId]`, `app/dashboards/[dashboardKey]`, `app/api/session`
+
+**Author new / modify:**
+- Pages: Dashboard (org status, approvals/votes, recent decisions, gaps, treasury), Artifact viewer (read-only + version history), Decision log (filterable audit), Chairs (assignments, specialist refs, scope), Approvals queue, Votes (collective), Gaps (with submit-to-labor-commons), Treasury (collective)
+- Workspace-scoped session token; multi-user collective access wired in Phase 14
+
+**Acceptance:**
+- Dashboard reflects live org state; artifact viewer shows current + prior versions
+- Decision log browsable/filterable; approval and vote actions work with confirmation
+- No credentials, keys, or tokens exposed in any UI response
+
+---
+
+### Phase 14 — Federation & Multi-Org
+
+**Goal:** Parent-child organizational relationships. Sector cooperative → local collectives; multi-location business → branches. Extends child-runtime linkage into full federation.
+
+**Carry + sanitize:**
+- Extend `services/child-runtime-client.ts` and portfolio logic into federation
+
+**Author new:**
+- `routes/federation.ts` — `POST /api/v1/federation/link`, `GET /api/v1/federation/children`, `GET /api/v1/federation/parent`
+- Policy floors: parent sets minimums in child `autonomy_policy.json` that child cannot override
+- Governance handoff: hash-chained signed manifest on policy change
+- Multi-user collective access: member accounts, roles (member/steward/coordinator), vote from web UI
+
+**Acceptance:**
+- Parent-child established; policy floors enforced and unoverridable by child
+- Parent policy changes propagate to children with hash-chained governance record
+- Collective members log in and cast votes from the UI
+
+---
+
+### Phase 15 — Connectors & Integration Hardening
+
+**Goal:** All real connectors production-hardened with the credential vault. Webhooks, retries, idempotency across every external integration.
+
+**Carry + sanitize:**
+- `packages/connectors/real-connectors.ts`, `mock-connectors.ts`, `types.ts`, `vault.ts` — full connector suite + credential vault
+- `routes/webhooks.ts` — inbound webhook handling
+
+**Author new / modify:**
+- Harden every connector (Slack, Jira, Calendar, Cloudflare, Vercel, SendGrid, Stripe, HubSpot, PostHog, git providers): idempotency keys, retry with backoff, rollback
+- Vault: encrypted credential storage, per-workspace isolation, rotation
+
+**Acceptance:**
+- Every connector has a mock and a real implementation behind one interface
+- Credentials stored encrypted, never logged, isolated per workspace
+- Webhooks verified, idempotent, and replay-safe
+
+---
+
+### Phase 16 — Testing Agent & Full Validation
+
+**Goal:** The testing agent validates the whole system. Built incrementally per phase, completed and expanded here for OLF-specific coverage.
+
+**Carry + sanitize:**
+- `services/testing-agent/*` — `cli.ts`, `command.ts`, `orchestrator.ts`, `repo-validator.ts`, `integration-simulator.ts`, `governance-validator.ts`, `doctor.ts`, `reporter.ts`, `types.ts`
+
+**Author new:**
+- Test scenarios for labor-commons integration (resolver scoring, gap handling, catalog sync)
+- Test scenarios for collective governance (voting, quorum, amendments, contribution tracking)
+- Test scenarios for collective economics (distribution models, reserve floors)
+- Test scenarios for crew-bridge (all intent types)
+
+**Acceptance:**
+- `doctor` validates environment and config end to end
+- Repo validator, integration simulator, and governance validator pass on a clean build
+- Governance validator confirms artifact integrity, signing chain validity, decision-log immutability
+- Full onboarding → staffing → cadence → approval → execution cycle passes in SIM for both governance modes
+
+---
+
+## Testing Requirements (Every Phase)
+
+Tests land with each phase, not after.
 
 | Layer | Framework | Scope |
 |---|---|---|
-| Unit | Vitest | Artifact store, verification policy, governance signing, specialist resolver scoring |
-| Integration | Vitest + test PostgreSQL | Artifact write → governance event → decision log chain; interview → artifact generation |
-| End-to-end | Testing agent CLI | Full onboarding flow; full cadence cycle; approval routing for both modes |
-| Governance | Testing agent governance validator | Artifact integrity, signing chain validity, decision log immutability |
+| Unit | Vitest | artifact store, verification policy, governance signing, resolver scoring, treasury math, vote tallies |
+| Integration | Vitest + test PostgreSQL | artifact write → governance event → decision-log chain; interview → artifact generation; specialist resolution → blueprint update |
+| End-to-end | testing-agent CLI | full onboarding, full cadence cycle, approval routing both modes, Level 4 loops in SIM |
+| Governance | testing-agent governance-validator | artifact integrity, signing chain, decision-log immutability, autonomy never self-promoted |
 
-The testing agent service from mother-board is carried directly. Expand its test scenarios to cover labor-commons integration and collective governance.
+---
+
+## Build Order & Parallelism
+
+```
+Phase 1  Foundation
+Phase 2  Onboarding interview & artifact generation
+Phase 3  Specialist resolution & chair staffing
+Phase 4  Governance engine & approval workflow
+Phase 5  Board orchestration & reasoning
+Phase 6  Execution & runtime
+Phase 7  Cadence operations & BI            ─┐ parallel after 6
+Phase 8  Company creation & devloop          ─┘
+Phase 9  Level 4 autonomous launcher          (after 8)
+Phase 10 Autonomous company evolution         (after 9)
+Phase 11 Org economics (business monetization + collective treasury)  (after 4; pairs with 9/10)
+Phase 12 Commons-crew bridge                  (after 7)
+Phase 13 Admin & audit UI                     (after 12)
+Phase 14 Federation & multi-org               (after 13)
+Phase 15 Connectors & integration hardening   (continuous; gate before 9 LIVE)
+Phase 16 Testing agent & full validation      (incremental; completed last)
+```
+
+- Phases 1–6 are a strict sequence; each depends on the prior.
+- Phases 7 and 8 run in parallel after Phase 6.
+- Phases 9 and 10 are sequential and depend on 8.
+- Phase 11 depends only on Phase 4. Its business-monetization half (11a) pairs with Phase 9; its collective-treasury half (11b) pairs with Phase 10.
+- Phase 15 runs continuously but must gate before any LIVE-mode execution in Phase 9.
+- Phase 16 is built incrementally with every phase and finalized at the end.
+
+---
+
+## Sanitization Rules
+
+Applied to all carried source before commit. Sanitization rewrites; it does not remove capability.
+
+- Rename all pre-OLF identifiers: `motherboard*` → `commons-board`/`governance`; remove `jkm-*`, `aieb`, `cb0` references and branding
+- Update all stack references to OLF repos: labor-commons, commons-crew, commons-board, commons-idea, commons-specs, commons-artifacts
+- **The only deletion is OLF-as-vendor metering of commons-board itself** — the plan tiers that gate platform features (`briefsPerMonth` / `agentRunsPerDay` / `connectorsEnabled`) are removed because OLF does not charge for the platform. The rest of `routes/billing.ts` — the full subscription/plan/entitlement/recurring-billing engine — is **inverted**, not discarded: it becomes the business-mode capability for an org to bill its *own* customers (Phase 11a Business Monetization). A business owner gets the complete commercial revenue stack.
+- Replace hardcoded domain-type capability lists with labor-commons specialist lookups (Phase 3/5)
+- HR agent and per-person analytics migrate as capabilities but remain governed: disabled by default, opt-in via `autonomy_policy.json`
+- No credentials, keys, or tokens from any pre-OLF source
+- Per [sanitize-on-import]: sanitize at the moment of import, no deferred cleanup
+
+---
+
+## Definition of Done
+
+commons-board v1 is complete when:
+
+- All 16 phases pass their acceptance criteria
+- Both governance modes (business, collective) run a full lifecycle in SIM and LIVE
+- Every chair is staffable from labor-commons; gaps route to commons-idea/labor-commons
+- Level 4 launches a real operating company within policy caps with full reversibility
+- Business mode runs a full commercial venture — its own subscriptions, per-seat billing, entitlements, and invoicing for its own customers
+- Collective mode distributes treasury under governed vote
+- OLF never charges, meters, or gates an org's use of commons-board
+- commons-crew drives all human interaction through the bridge
+- The testing agent's full suite passes on a clean build
+- Every action across every capability is signed, hash-chained, and written to the decision log before execution

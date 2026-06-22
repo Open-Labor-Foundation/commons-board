@@ -33,15 +33,20 @@ Mother-board is a working implementation with sound core infrastructure. The fol
 | Chat interpreter | Reoriented to commons-crew integration rather than standalone board chat |
 | UI | Simplified; commons-crew is the primary human interface; board UI is secondary (admin/audit view) |
 
-## What Is Removed
+## What Is Reframed (Not Removed)
 
-| Component | Reason |
+Every mother-board capability migrates. Nothing is dropped from scope. A small number of components are *reframed* because the OLF context differs — the capability survives, only its framing or destination changes.
+
+| Component | Reframing |
 |---|---|
-| SaaS billing / per-seat pricing | Not applicable to OLF platform |
-| Level 4 autonomous company launch | Deferred — real connector integration (Stripe, Vercel, Cloudflare) is a separate phase |
-| Commercialization scaffolding | Not applicable |
-| Market feedback engine | Deferred to later phase |
-| Outbound sales engine | Out of scope for v1 |
+| `billing.ts` subscription / plan-tier / entitlement engine | **Inverted, not removed.** In mother-board it billed the workspace to use the platform; in commons-board it becomes a business-mode capability for an org to bill *its own customers* — subscriptions, per-seat, tiers, entitlements, recurring billing, invoicing (Phase 11a Business Monetization). The complete commercial revenue stack migrates. |
+| OLF-as-vendor metering of commons-board | **The one true deletion.** Plan tiers that gate platform features (`briefsPerMonth` / `agentRunsPerDay` / `connectorsEnabled`) are removed: OLF is AGPL and self-hosted and does not charge, meter, or gate use of the platform. This is the only capability that disappears, and it is not a business-owner capability. |
+| Level 4 autonomous company launch | Fully migrated (Phase 9), real connectors included (Cloudflare, Vercel, SendGrid, Stripe, HubSpot, PostHog) with idempotency and rollback. |
+| Market feedback / experiment evolution / capital allocation | Fully migrated (Phase 10). |
+| Outbound sales engine | Fully migrated as the Level 4 Acquire loop (Phase 9). |
+| HR agent / per-person analytics | Fully migrated as governed capabilities, disabled by default, opt-in via `autonomy_policy.json`. |
+
+See [execution-plan.md](execution-plan.md) for the complete component → phase map.
 
 ---
 

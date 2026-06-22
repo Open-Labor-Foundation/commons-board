@@ -27,13 +27,27 @@ A small business owner, sole proprietor, or founding team runs the organization.
 
 This is the original mother-board vision: a single person gets the executive bench their business needs — finance, legal, operations, marketing, product, growth — without the overhead of actually hiring those people. The platform handles the cadence: daily pulse, weekly executive brief, monthly review. Routine work executes within policy. Significant decisions surface for owner approval.
 
-For a small business owner, commons-board is the team they couldn't afford.
+Business mode is fully commercial. The owner runs a real revenue-generating venture, and commons-board gives them the complete commercial stack to do it: define product plans, charge customers, run subscriptions and per-seat pricing, gate entitlements, bill recurring revenue, and send invoices. A business owner can launch and operate a SaaS, a service business, or a product company end to end. This commercial capability is the business-mode counterpart to the collective treasury — both are first-class.
+
+For a small business owner, commons-board is the team they couldn't afford *and* the commercial infrastructure to monetize what that team builds.
 
 ### Collective Mode
 
 A worker collective, cooperative, or community organization runs the organization. Authority is distributed. Executive chairs report to the collective membership. Decisions above a defined threshold require member vote. Policy changes require consensus. Governance document amendments follow amendment protocols.
 
-For a collective, commons-board adds the organizational layer that makes self-governance workable — not theoretically workable, but actually workable day to day.
+For a collective, commons-board adds the organizational layer that makes self-governance workable — not theoretically workable, but actually workable day to day. On the economic side, the collective gets a pooled treasury and governed distribution (equal-share, contribution-weighted, or hybrid) — the cooperative counterpart to business-mode monetization.
+
+### Economic Symmetry
+
+The two modes are mirror images economically, and both are first-class:
+
+| | Business mode | Collective mode |
+|---|---|---|
+| Economic engine | Commercial monetization — the org bills its own customers (subscriptions, per-seat, tiers, entitlements, recurring billing, invoicing) | Collective treasury — pooled revenue and governed distribution to members |
+| Governed by | Owner approval | Member vote |
+| Audit | Every charge and change in the decision log | Every distribution in the decision log |
+
+The only thing commons-board never does is charge *you* to use commons-board. OLF is AGPL and self-hosted; the platform does not meter, gate, or bill your use of it. Every commercial capability points outward — at your customers — never inward at you.
 
 ### Why One Platform Serves Both
 
@@ -120,4 +134,4 @@ The organization is running. The owner or collective doesn't have to think about
 - It is not an autonomous agent that acts without permission. It is a governed system that surfaces decisions to the right authority.
 - It does not provide legal advice. It produces checklists, drafts, and reminders for human legal review.
 - It does not fire people, change compensation, reallocate budgets, or make pricing decisions without explicit human authorization.
-- It is not a SaaS product management layer. Business mode enables real operations for real businesses; it is not software company scaffolding.
+- It is not a layer that charges you to use it. commons-board is free, AGPL, and self-hosted; OLF never meters or bills your use of the platform. (Business mode *does* give you a full commercial stack to bill your own customers — that capability points outward, at your customers, never inward at you.)
