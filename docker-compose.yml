@@ -1,0 +1,36 @@
+# commons-board — local/self-hosted stack
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: commons
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-commons-dev}
+      POSTGRES_DB: commons_board
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commons -d commons_board"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://commons:${POSTGRES_PASSWORD:-commons-dev}@db:5432/commons_board
+      # Governance signing + provider keys are injected here at deploy time.
+      # Never commit real values. See .env.example.
+      CB_GOVERNANCE_SIGNING_KEYS_JSON: ${CB_GOVERNANCE_SIGNING_KEYS_JSON:-}
+      CB_GOVERNANCE_ACTIVE_KEY_ID: ${CB_GOVERNANCE_ACTIVE_KEY_ID:-}
+    ports:
+      - "4000:4000"
+
+volumes:
+  db-data:
