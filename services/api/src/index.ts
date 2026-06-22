@@ -36,6 +36,7 @@ import { level4Router } from "./routes/level4.js";
 import { autonomousCompanyRouter } from "./routes/autonomous-company.js";
 import { billingRouter } from "./routes/billing.js";
 import { treasuryRouter } from "./routes/treasury.js";
+import { crewBridgeRouter } from "./routes/crew-bridge.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -76,6 +77,7 @@ export function createApp() {
   app.use("/api/v1/autonomous", autonomousCompanyRouter); // Phase 10
   app.use("/api/v1/billing", billingRouter);             // Phase 11
   app.use("/api/v1/treasury", treasuryRouter);           // Phase 11
+  app.use("/api/v1/crew-bridge", crewBridgeRouter);      // Phase 12
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
