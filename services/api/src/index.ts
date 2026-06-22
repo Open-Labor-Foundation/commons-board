@@ -16,6 +16,7 @@ import { interviewRouter } from "./routes/interview.js";
 import { onboardingRouter } from "./routes/onboarding.js";
 import { artifactsRouter } from "./routes/artifacts.js";
 import { workspaceRouter } from "./routes/workspace.js";
+import { orgRouter } from "./routes/org.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -36,6 +37,7 @@ export function createApp() {
   app.use("/api/v1/onboarding", onboardingRouter); // Phase 2
   app.use("/api/v1/artifacts", artifactsRouter);   // Phase 2
   app.use("/api/v1/workspace", workspaceRouter);   // Phase 2
+  app.use("/api/v1/org", orgRouter);               // Phase 3
   //   app.use("/api/v1/approvals", approvalsRouter);   // Phase 4
 
   // Structured error handler (last).
