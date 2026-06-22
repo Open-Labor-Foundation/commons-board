@@ -38,6 +38,7 @@ import { billingRouter } from "./routes/billing.js";
 import { treasuryRouter } from "./routes/treasury.js";
 import { crewBridgeRouter } from "./routes/crew-bridge.js";
 import { federationRouter } from "./routes/federation.js";
+import { webhooksRouter } from "./routes/webhooks.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -80,6 +81,7 @@ export function createApp() {
   app.use("/api/v1/treasury", treasuryRouter);           // Phase 11
   app.use("/api/v1/crew-bridge", crewBridgeRouter);      // Phase 12
   app.use("/api/v1/federation", federationRouter);       // Phase 14
+  app.use("/api/v1/webhooks", webhooksRouter);           // Phase 15
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {

@@ -11,6 +11,7 @@
     "migrate": "node --import tsx src/lib/db-migrate.ts"
   },
   "dependencies": {
+    "@commons-board/connectors": "*",
     "@commons-board/shared": "*",
     "ajv": "^8.17.1",
     "express": "^4.21.0",

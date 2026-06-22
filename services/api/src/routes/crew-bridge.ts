@@ -34,6 +34,7 @@ import { requireContext, requireRole } from "../lib/auth.js";
 import { getArtifact } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
+import { dispatchWebhookEvent } from "../lib/webhook-delivery.js";
 
 export const crewBridgeRouter = Router();
 crewBridgeRouter.use(requireContext);
@@ -68,6 +69,40 @@ type CrewActivity = {
 
 const connectionKey = (w: string) => `crew-bridge-connection/${w}`;
 const activityKey = (w: string) => `crew-bridge-activity/${w}`;
+
+// ---------------------------------------------------------------------------
+// Push notification to crew endpoint (Phase 15)
+// Fire-and-forget: if the crew endpoint is unreachable, we log and continue.
+// ---------------------------------------------------------------------------
+
+function pushCrewNotification(
+  workspaceId: string,
+  event: { event_type: string; [key: string]: unknown }
+): void {
+  const connection = readJson<CrewConnection | null>(connectionKey(workspaceId), null);
+  if (!connection?.crewEndpoint) return;
+
+  const envKey = connection.api_key_env;
+  const apiKey = envKey ? process.env[envKey] : undefined;
+  if (!apiKey) return;
+
+  // Also fan-out as a webhook event so subscribers get it too
+  void dispatchWebhookEvent(workspaceId, event);
+
+  fetch(`${connection.crewEndpoint}/api/v1/board-notifications`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({ workspace_id: workspaceId, ...event }),
+    signal: AbortSignal.timeout(5000)
+  }).catch(() => {
+    // delivery failure is non-fatal
+  });
+}
+
+export { pushCrewNotification };
 
 // ---------------------------------------------------------------------------
 // Crew authentication middleware

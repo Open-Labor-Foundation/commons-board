@@ -477,8 +477,17 @@ function recordCheckpoint(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Connector stubs (Phase 15 wires real implementations via CB_CONNECTOR_MODE)
+// Connector dispatch — routes to real implementations or stubs via CB_CONNECTOR_MODE
 // ---------------------------------------------------------------------------
+
+import {
+  cloudflareUpsertDnsRecords,
+  vercelDeployTemplate,
+  stripeCreateProduct,
+  stripeCreatePrice,
+  stripeCreateCheckoutSession,
+  emailSend
+} from "@commons-board/connectors";
 
 const _connectorMode = process.env.CB_CONNECTOR_MODE === "live"
   ? "live"
@@ -491,6 +500,13 @@ async function connectorCloudflareUpsertRecords(
   domain: string,
   records: Array<{ type: string; name: string; value: string }>
 ): Promise<{ ok: boolean; domain: string; records_count: number; mode: string }> {
+  if (_connectorMode === "live") {
+    const result = await cloudflareUpsertDnsRecords(
+      domain,
+      records.map((r) => ({ type: r.type as "A" | "CNAME" | "TXT" | "MX", name: r.name, content: r.value }))
+    );
+    return { ...result, mode: "live" };
+  }
   return { ok: true, domain, records_count: records.length, mode: _connectorMode };
 }
 
@@ -498,6 +514,10 @@ async function connectorVercelDeployTemplate(
   _workspaceId: string,
   opts: { projectName: string; headline: string; cta: string }
 ): Promise<{ url: string; projectName: string; mode: string }> {
+  if (_connectorMode === "live") {
+    const result = await vercelDeployTemplate(opts);
+    return { url: result.url, projectName: opts.projectName, mode: "live" };
+  }
   const slug = opts.projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   return { url: `https://${slug}.example.com`, projectName: opts.projectName, mode: _connectorMode };
 }
@@ -506,6 +526,10 @@ async function connectorStripeCreateProduct(
   _workspaceId: string,
   name: string
 ): Promise<{ id: string; name: string; mode: string }> {
+  if (_connectorMode === "live") {
+    const result = await stripeCreateProduct(name);
+    return { id: result.id, name: result.name, mode: "live" };
+  }
   return { id: `prod_${randomUUID().slice(0, 8)}`, name, mode: _connectorMode };
 }
 
@@ -513,6 +537,10 @@ async function connectorStripeCreatePrice(
   _workspaceId: string,
   opts: { productId: string; unitAmount: number; currency: string }
 ): Promise<{ id: string; productId: string; unitAmount: number; mode: string }> {
+  if (_connectorMode === "live") {
+    const result = await stripeCreatePrice(opts);
+    return { id: result.id, productId: opts.productId, unitAmount: opts.unitAmount, mode: "live" };
+  }
   return { id: `price_${randomUUID().slice(0, 8)}`, productId: opts.productId, unitAmount: opts.unitAmount, mode: _connectorMode };
 }
 
@@ -520,14 +548,24 @@ async function connectorStripeCreateCheckoutLink(
   _workspaceId: string,
   priceId: string
 ): Promise<{ url: string; priceId: string; mode: string }> {
+  if (_connectorMode === "live") {
+    const successUrl = process.env.STRIPE_SUCCESS_URL ?? "https://example.com/success";
+    const cancelUrl = process.env.STRIPE_CANCEL_URL ?? "https://example.com/cancel";
+    const session = await stripeCreateCheckoutSession({ priceId, successUrl, cancelUrl });
+    return { url: session.url, priceId, mode: "live" };
+  }
   return { url: `https://checkout.example.com/pay/${priceId}`, priceId, mode: _connectorMode };
 }
 
 async function connectorEmailSend(
   _workspaceId: string,
-  _opts: { to: string; subject: string; body: string; unsubscribeLink?: string }
+  opts: { to: string; subject: string; body: string; unsubscribeLink?: string }
 ): Promise<void> {
-  // Stub: real delivery wired in Phase 15 when CB_CONNECTOR_MODE=live
+  if (_connectorMode === "live") {
+    await emailSend({ to: opts.to, subject: opts.subject, text: opts.body, unsubscribeUrl: opts.unsubscribeLink });
+    return;
+  }
+  // stub: no-op in test/mock mode
 }
 
 // ---------------------------------------------------------------------------
