@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/tooling_plan",
+  "title": "ToolingPlan",
+  "type": "object",
+  "required": ["required_tools", "connection_status"],
+  "properties": {
+    "required_tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string" },
+          "provider": { "type": "string" }
+        }
+      }
+    },
+    "connection_status": { "type": "object" }
+  }
+}

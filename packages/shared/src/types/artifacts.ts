@@ -18,7 +18,11 @@ export type ArtifactType =
   | "autonomy_policy"
   | "cadence_protocol"
   | "agent_blueprint"
-  | "collective_config";
+  | "collective_config"
+  | "venture_profile"
+  | "launch_plan"
+  | "tooling_plan"
+  | "financial_policy";
 
 /** 1. business_profile.json — who the organization is. */
 export interface BusinessProfile {
@@ -209,6 +213,10 @@ export interface ArtifactPayloadMap {
   cadence_protocol: CadenceProtocol;
   agent_blueprint: AgentBlueprint;
   collective_config: CollectiveConfig;
+  venture_profile: Record<string, unknown>;
+  launch_plan: Record<string, unknown>;
+  tooling_plan: Record<string, unknown>;
+  financial_policy: Record<string, unknown>;
 }
 
 export type ArtifactPayload = ArtifactPayloadMap[ArtifactType];

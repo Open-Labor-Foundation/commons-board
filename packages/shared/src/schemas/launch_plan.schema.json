@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/launch_plan",
+  "title": "LaunchPlan",
+  "type": "object",
+  "required": ["milestones_14_30_60_90", "experiments_backlog", "success_metrics"],
+  "properties": {
+    "milestones_14_30_60_90": { "type": "object" },
+    "experiments_backlog": { "type": "array", "items": { "type": "string" } },
+    "success_metrics": { "type": "array", "items": { "type": "string" } }
+  }
+}

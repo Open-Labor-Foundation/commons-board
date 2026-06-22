@@ -77,6 +77,8 @@ function loadArtifacts(workspaceId: string): { artifacts: ArtifactsForExecution 
 
   if (missing.length > 0) return { artifacts: null, missing };
 
+  const financialPolicy = getArtifact(workspaceId, "financial_policy");
+
   return {
     missing: [],
     artifacts: {
@@ -84,8 +86,8 @@ function loadArtifacts(workspaceId: string): { artifacts: ArtifactsForExecution 
       objective_config: objectiveConfig!.payload as Record<string, unknown>,
       autonomy_policy: autonomyPolicy!.payload as ArtifactsForExecution["autonomy_policy"],
       cadence_protocol: cadenceProtocol!.payload as Record<string, unknown>,
-      agent_blueprint: agentBlueprint!.payload as ArtifactsForExecution["agent_blueprint"]
-      // financial_policy added in Phase 8 (company creation)
+      agent_blueprint: agentBlueprint!.payload as ArtifactsForExecution["agent_blueprint"],
+      ...(financialPolicy ? { financial_policy: financialPolicy.payload as ArtifactsForExecution["financial_policy"] } : {})
     }
   };
 }

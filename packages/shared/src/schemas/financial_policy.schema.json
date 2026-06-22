@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/financial_policy",
+  "title": "FinancialPolicy",
+  "type": "object",
+  "required": ["currency", "daily_spend_cap", "weekly_spend_cap", "per_transaction_cap"],
+  "properties": {
+    "currency": { "type": "string" },
+    "daily_spend_cap": { "type": "number" },
+    "weekly_spend_cap": { "type": "number" },
+    "per_transaction_cap": { "type": "number" },
+    "categories": {
+      "type": "object",
+      "properties": {
+        "allowed": { "type": "array", "items": { "type": "string" } },
+        "forbidden": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "approvals": {
+      "type": "object",
+      "properties": {
+        "required_over_amount": { "type": "number" },
+        "required_for_categories": { "type": "array", "items": { "type": "string" } },
+        "approver_roles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "founder_constraints": { "type": "object" }
+  }
+}

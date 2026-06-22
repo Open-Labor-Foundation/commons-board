@@ -59,7 +59,9 @@ export type GovernanceEventType =
   | "board_request_updated"
   | "board_request_status_changed"
   | "board_roadmap_created"
-  | "board_chat_completed";
+  | "board_chat_completed"
+  | "launch_session_started"
+  | "launch_artifacts_written";
 
 /** A governance event. Signed and chained when persisted. */
 export interface GovernanceEvent {

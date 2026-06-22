@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/venture_profile",
+  "title": "VentureProfile",
+  "type": "object",
+  "required": ["chosen_market_problem", "target_icp", "offer_pricing_hypothesis", "differentiation"],
+  "properties": {
+    "chosen_market_problem": { "type": "string" },
+    "target_icp": { "type": "string" },
+    "offer_pricing_hypothesis": { "type": "string" },
+    "differentiation": { "type": "string" },
+    "preferred_sales_motion": { "type": "string" }
+  }
+}
