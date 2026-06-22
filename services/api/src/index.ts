@@ -25,6 +25,11 @@ import { motherboardRouter } from "./routes/motherboard.js";
 import { motherboardChatRouter } from "./routes/motherboard-chat.js";
 import { simulationBoardRouter } from "./routes/simulation-board.js";
 import { executionRouter } from "./routes/execution.js";
+import { cadenceRouter } from "./routes/cadence.js";
+import { briefTemplatesRouter } from "./routes/brief-templates.js";
+import { businessIntelligenceRouter } from "./routes/business-intelligence.js";
+import { observabilityRouter } from "./routes/observability.js";
+import { eventsRouter } from "./routes/events.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -53,7 +58,12 @@ export function createApp() {
   app.use("/api/v1/board/chat", motherboardChatRouter); // Phase 5 (must precede /api/v1/board)
   app.use("/api/v1/board", motherboardRouter);      // Phase 5
   app.use("/api/v1/sim", simulationBoardRouter);   // Phase 5
-  app.use("/api/v1/execution", executionRouter);   // Phase 6
+  app.use("/api/v1/execution", executionRouter);        // Phase 6
+  app.use("/api/v1/cadence", cadenceRouter);            // Phase 7
+  app.use("/api/v1/brief-templates", briefTemplatesRouter); // Phase 7
+  app.use("/api/v1/bi", businessIntelligenceRouter);    // Phase 7
+  app.use("/api/v1/obs", observabilityRouter);          // Phase 7
+  app.use("/api/v1/events", eventsRouter);              // Phase 7
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
