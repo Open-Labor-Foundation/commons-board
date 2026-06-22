@@ -12,6 +12,10 @@ import { validateGovernanceSigningConfig } from "./lib/governance-signing.js";
 import { correlationId } from "./lib/request-context.js";
 import { corsMiddleware, securityHeadersMiddleware, basicRateLimitMiddleware } from "./lib/http-security.js";
 import { settingsRouter } from "./routes/settings.js";
+import { interviewRouter } from "./routes/interview.js";
+import { onboardingRouter } from "./routes/onboarding.js";
+import { artifactsRouter } from "./routes/artifacts.js";
+import { workspaceRouter } from "./routes/workspace.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -27,8 +31,11 @@ export function createApp() {
   });
 
   // Route mounts land here per phase:
-  app.use("/api/v1/settings", settingsRouter); // Phase 1
-  //   app.use("/api/v1/interview", interviewRouter);   // Phase 2
+  app.use("/api/v1/settings", settingsRouter);     // Phase 1
+  app.use("/api/v1/interview", interviewRouter);   // Phase 2
+  app.use("/api/v1/onboarding", onboardingRouter); // Phase 2
+  app.use("/api/v1/artifacts", artifactsRouter);   // Phase 2
+  app.use("/api/v1/workspace", workspaceRouter);   // Phase 2
   //   app.use("/api/v1/approvals", approvalsRouter);   // Phase 4
 
   // Structured error handler (last).
