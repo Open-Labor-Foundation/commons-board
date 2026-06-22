@@ -24,6 +24,7 @@ import { decisionLogRouter } from "./routes/decision-log.js";
 import { motherboardRouter } from "./routes/motherboard.js";
 import { motherboardChatRouter } from "./routes/motherboard-chat.js";
 import { simulationBoardRouter } from "./routes/simulation-board.js";
+import { executionRouter } from "./routes/execution.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -52,6 +53,7 @@ export function createApp() {
   app.use("/api/v1/board/chat", motherboardChatRouter); // Phase 5 (must precede /api/v1/board)
   app.use("/api/v1/board", motherboardRouter);      // Phase 5
   app.use("/api/v1/sim", simulationBoardRouter);   // Phase 5
+  app.use("/api/v1/execution", executionRouter);   // Phase 6
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
