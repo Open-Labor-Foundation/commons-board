@@ -17,6 +17,10 @@ import { onboardingRouter } from "./routes/onboarding.js";
 import { artifactsRouter } from "./routes/artifacts.js";
 import { workspaceRouter } from "./routes/workspace.js";
 import { orgRouter } from "./routes/org.js";
+import { approvalsRouter } from "./routes/approvals.js";
+import { votesRouter } from "./routes/votes.js";
+import { amendmentsRouter } from "./routes/amendments.js";
+import { decisionLogRouter } from "./routes/decision-log.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -38,7 +42,10 @@ export function createApp() {
   app.use("/api/v1/artifacts", artifactsRouter);   // Phase 2
   app.use("/api/v1/workspace", workspaceRouter);   // Phase 2
   app.use("/api/v1/org", orgRouter);               // Phase 3
-  //   app.use("/api/v1/approvals", approvalsRouter);   // Phase 4
+  app.use("/api/v1/approvals", approvalsRouter);   // Phase 4
+  app.use("/api/v1/votes", votesRouter);           // Phase 4
+  app.use("/api/v1/amendments", amendmentsRouter); // Phase 4
+  app.use("/api/v1/decision-log", decisionLogRouter); // Phase 4
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
