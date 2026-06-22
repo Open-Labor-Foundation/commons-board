@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/collective_config",
+  "title": "CollectiveConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["org_id", "membership", "voting", "contribution_tracking", "amendment_protocol", "schema_version"],
+  "properties": {
+    "org_id": { "type": "string", "minLength": 1 },
+    "membership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["member_roles", "quorum_threshold", "active_member_count"],
+      "properties": {
+        "member_roles": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["member", "steward", "coordinator", "observer"] }
+        },
+        "quorum_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "active_member_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "voting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standard_vote_duration_hours",
+        "urgent_vote_duration_hours",
+        "vote_method",
+        "supermajority_threshold",
+        "decisions_requiring_vote",
+        "decisions_requiring_consensus"
+      ],
+      "properties": {
+        "standard_vote_duration_hours": { "type": "integer", "minimum": 0 },
+        "urgent_vote_duration_hours": { "type": "integer", "minimum": 0 },
+        "vote_method": {
+          "type": "string",
+          "enum": ["simple_majority", "supermajority", "consensus", "ranked_choice"]
+        },
+        "supermajority_threshold": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "decisions_requiring_vote": { "type": "array", "items": { "type": "string" } },
+        "decisions_requiring_consensus": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "contribution_tracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "tracked_actions"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "tracked_actions": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["vote", "approval", "meeting_attendance", "task_completion"] }
+        }
+      }
+    },
+    "amendment_protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposal_requires", "notice_period_hours", "amendment_vote_method"],
+      "properties": {
+        "proposal_requires": { "type": "string", "enum": ["any_member", "steward", "coordinator"] },
+        "notice_period_hours": { "type": "integer", "minimum": 0 },
+        "amendment_vote_method": { "type": "string", "enum": ["supermajority", "consensus"] }
+      }
+    },
+    "schema_version": { "type": "string" }
+  }
+}

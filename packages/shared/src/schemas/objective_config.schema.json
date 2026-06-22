@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/objective_config",
+  "title": "ObjectiveConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["org_id", "primary_objectives", "kpis", "constraints", "schema_version"],
+  "properties": {
+    "org_id": { "type": "string", "minLength": 1 },
+    "primary_objectives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "type", "priority", "success_criteria", "target_date"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["revenue", "mission", "growth", "sustainability", "service", "other"]
+          },
+          "priority": { "type": "integer" },
+          "success_criteria": { "type": "array", "items": { "type": "string" } },
+          "target_date": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "kpis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "unit", "current_value", "target_value", "reporting_cadence"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "unit": { "type": "string" },
+          "current_value": { "type": ["number", "null"] },
+          "target_value": { "type": ["number", "null"] },
+          "reporting_cadence": { "type": "string", "enum": ["daily", "weekly", "monthly"] }
+        }
+      }
+    },
+    "constraints": { "type": "array", "items": { "type": "string" } },
+    "schema_version": { "type": "string" }
+  }
+}

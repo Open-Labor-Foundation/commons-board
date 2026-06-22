@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/business_profile",
+  "title": "BusinessProfile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "org_id",
+    "org_name",
+    "governance_mode",
+    "description",
+    "industry",
+    "primary_domain",
+    "operating_since",
+    "location",
+    "size",
+    "external_systems",
+    "created_at",
+    "schema_version"
+  ],
+  "properties": {
+    "org_id": { "type": "string", "minLength": 1 },
+    "org_name": { "type": "string", "minLength": 1 },
+    "governance_mode": { "type": "string", "enum": ["business", "collective"] },
+    "description": { "type": "string" },
+    "industry": { "type": "string" },
+    "primary_domain": { "type": "string" },
+    "operating_since": { "type": ["string", "null"] },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "regions"],
+      "properties": {
+        "primary": { "type": "string" },
+        "regions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "size": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headcount", "member_count"],
+      "properties": {
+        "headcount": { "type": "integer", "minimum": 0 },
+        "member_count": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "external_systems": { "type": "array", "items": { "type": "string" } },
+    "created_at": { "type": "string" },
+    "schema_version": { "type": "string" }
+  }
+}

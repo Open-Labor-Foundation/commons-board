@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/autonomy_policy",
+  "title": "AutonomyPolicy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "org_id",
+    "autonomy_mode",
+    "execution_mode",
+    "approval_thresholds",
+    "disabled_capabilities",
+    "hr_agent_enabled",
+    "per_person_analytics_enabled",
+    "slack_dm_enabled",
+    "slack_channel_whitelist",
+    "risk_escalation_threshold",
+    "blast_radius_escalation_threshold",
+    "schema_version"
+  ],
+  "properties": {
+    "org_id": { "type": "string", "minLength": 1 },
+    "autonomy_mode": { "type": "string", "enum": ["advisor", "orchestrator", "autopilot"] },
+    "execution_mode": { "type": "string", "enum": ["sim", "live"] },
+    "approval_thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "financial_spend_auto_limit",
+        "outreach_auto_limit",
+        "content_publish_requires_approval",
+        "external_write_requires_approval"
+      ],
+      "properties": {
+        "financial_spend_auto_limit": { "type": "number", "minimum": 0 },
+        "outreach_auto_limit": { "type": "integer", "minimum": 0 },
+        "content_publish_requires_approval": { "type": "boolean" },
+        "external_write_requires_approval": { "type": "boolean" }
+      }
+    },
+    "disabled_capabilities": { "type": "array", "items": { "type": "string" } },
+    "hr_agent_enabled": { "type": "boolean" },
+    "per_person_analytics_enabled": { "type": "boolean" },
+    "slack_dm_enabled": { "type": "boolean" },
+    "slack_channel_whitelist": { "type": "array", "items": { "type": "string" } },
+    "risk_escalation_threshold": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "blast_radius_escalation_threshold": { "type": "string", "enum": ["low", "medium", "high"] },
+    "schema_version": { "type": "string" }
+  }
+}
