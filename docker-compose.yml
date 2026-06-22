@@ -25,12 +25,35 @@ services:
       NODE_ENV: production
       PORT: 4000
       DATABASE_URL: postgres://commons:${POSTGRES_PASSWORD:-commons-dev}@db:5432/commons_board
-      # Governance signing + provider keys are injected here at deploy time.
-      # Never commit real values. See .env.example.
+      CB_CONNECTOR_MODE: ${CB_CONNECTOR_MODE:-mock}
       CB_GOVERNANCE_SIGNING_KEYS_JSON: ${CB_GOVERNANCE_SIGNING_KEYS_JSON:-}
       CB_GOVERNANCE_ACTIVE_KEY_ID: ${CB_GOVERNANCE_ACTIVE_KEY_ID:-}
+      CB_GOVERNANCE_STRICT_SIGNING: ${CB_GOVERNANCE_STRICT_SIGNING:-false}
+      # Inject inference provider key via the env var name you set in /api/v1/settings
+      FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "4000:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      INTERNAL_API_BASE_URL: http://api:4000
+      NEXT_PUBLIC_COMMONS_WORKSPACE_ID: ${NEXT_PUBLIC_COMMONS_WORKSPACE_ID:-default}
+      NEXT_PUBLIC_COMMONS_USER_ID: ${NEXT_PUBLIC_COMMONS_USER_ID:-operator}
+      NEXT_PUBLIC_COMMONS_USER_ROLE: ${NEXT_PUBLIC_COMMONS_USER_ROLE:-admin}
+    ports:
+      - "3100:3000"
 
 volumes:
   db-data:
