@@ -59,6 +59,8 @@ export type Role = "admin" | "operator" | "member" | "observer";
 /** Per-workspace settings, surfaced in the settings menu. */
 export interface WorkspaceSettings {
   workspace_id: string;
+  org_name?: string;
+  governance_mode?: "collective" | "business";
   active_provider_id: string;
   providers: ProviderConfig[];
   rbac: {

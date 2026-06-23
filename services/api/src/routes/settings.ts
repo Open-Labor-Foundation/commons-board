@@ -76,6 +76,8 @@ settingsRouter.put("/", requireRole(["admin", "operator"]), (req: Request, res: 
   const current = load(workspaceOf(req));
   const merged: WorkspaceSettings = {
     ...current,
+    org_name: body.org_name ?? current.org_name,
+    governance_mode: body.governance_mode ?? current.governance_mode,
     active_provider_id: body.active_provider_id ?? current.active_provider_id,
     providers: body.providers ?? current.providers,
     rbac: body.rbac ?? current.rbac,

@@ -3,18 +3,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, apiPut } from "../../lib/api";
 
-type Settings = {
-  workspaceName?: string;
+type ProviderConfig = {
+  provider_id: string;
+  kind: string;
+  display_name: string;
+  model: string;
+  api_key_env: string | null;
+  endpoint: string | null;
+  options: Record<string, string | number | boolean>;
+};
+
+type WorkspaceSettings = {
+  workspace_id: string;
   org_name?: string;
-  governanceMode?: string;
   governance_mode?: string;
-  providerName?: string;
-  provider_name?: string;
-  modelName?: string;
-  model_name?: string;
-  apiKeyEnv?: string;
-  api_key_env?: string;
-  apiKeyConfigured?: boolean;
+  active_provider_id: string;
+  providers: ProviderConfig[];
+  rbac?: { grants: Record<string, string[]> };
+  feature_toggles?: Record<string, boolean>;
+  updated_at?: string;
 };
 
 const PROVIDERS = [
@@ -31,21 +38,22 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
 
   const [orgName, setOrgName] = useState("");
-  const [govMode, setGovMode] = useState("collective");
+  const [govMode, setGovMode] = useState<"collective" | "business">("collective");
   const [provider, setProvider] = useState("featherless");
-  const [modelName, setModelName] = useState("");
-  const [apiKeyEnv, setApiKeyEnv] = useState("");
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [modelName, setModelName] = useState("Qwen/Qwen3-32B");
+  const [apiKeyEnv, setApiKeyEnv] = useState("FEATHERLESS_API_KEY");
 
   const load = useCallback(async () => {
-    const s = await apiFetch<Settings>("/api/v1/settings");
+    const s = await apiFetch<WorkspaceSettings>("/api/v1/settings");
     if (s) {
-      setOrgName(s.workspaceName ?? s.org_name ?? "");
-      setGovMode(s.governanceMode ?? s.governance_mode ?? "collective");
-      setProvider(s.providerName ?? s.provider_name ?? "featherless");
-      setModelName(s.modelName ?? s.model_name ?? "");
-      setApiKeyEnv(s.apiKeyEnv ?? s.api_key_env ?? "");
-      setApiKeyConfigured(s.apiKeyConfigured ?? false);
+      setOrgName(s.org_name ?? "");
+      setGovMode((s.governance_mode as "collective" | "business") ?? "collective");
+      const activeProvider = s.providers.find(p => p.provider_id === s.active_provider_id);
+      if (activeProvider) {
+        setProvider(activeProvider.provider_id);
+        setModelName(activeProvider.model ?? "");
+        setApiKeyEnv(activeProvider.api_key_env ?? "");
+      }
     }
     setLoading(false);
   }, []);
@@ -63,15 +71,27 @@ export default function SettingsPage() {
     setSaving(true);
     setError("");
     setSaved(false);
+
+    const providerDef = PROVIDERS.find(p => p.id === provider);
+    const providerConfig: ProviderConfig = {
+      provider_id: provider,
+      kind: "hosted_api",
+      display_name: providerDef?.label ?? provider,
+      model: modelName.trim(),
+      api_key_env: apiKeyEnv.trim() || null,
+      endpoint: null,
+      options: {},
+    };
+
     const { status } = await apiPut("/api/v1/settings", {
-      workspaceName: orgName.trim(),
-      governanceMode: govMode,
-      providerName: provider,
-      modelName: modelName.trim(),
-      apiKeyEnv: apiKeyEnv.trim(),
+      org_name: orgName.trim() || undefined,
+      governance_mode: govMode,
+      providers: [providerConfig],
+      active_provider_id: provider,
     });
+
     setSaving(false);
-    if (status >= 400) { setError("Failed to save. Check API connectivity."); return; }
+    if (status >= 400) { setError("Failed to save settings. Check that the API is reachable."); return; }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
@@ -84,7 +104,6 @@ export default function SettingsPage() {
       <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 24px" }}>Workspace configuration and AI provider settings.</p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-        {/* Workspace */}
         <Section title="Workspace">
           <Field label="Workspace name">
             <input
@@ -119,7 +138,6 @@ export default function SettingsPage() {
           </Field>
         </Section>
 
-        {/* Provider */}
         <Section title="AI Provider">
           <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px" }}>
             The inference provider powers board chat and autonomous actions. API keys must be set as environment variables — they are never stored here.
@@ -158,10 +176,7 @@ export default function SettingsPage() {
               style={{ width: "100%", padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }}
             />
             <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0" }}>
-              Name of the env var only — not the key itself. Key status: {" "}
-              <strong style={{ color: apiKeyConfigured ? "#16a34a" : "#dc2626" }}>
-                {apiKeyConfigured ? "configured" : "not found"}
-              </strong>
+              Name of the env var only — not the key itself. Set it in the deployment environment.
             </p>
           </Field>
         </Section>
