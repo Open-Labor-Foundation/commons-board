@@ -39,6 +39,9 @@ import { treasuryRouter } from "./routes/treasury.js";
 import { crewBridgeRouter } from "./routes/crew-bridge.js";
 import { federationRouter } from "./routes/federation.js";
 import { webhooksRouter } from "./routes/webhooks.js";
+import { evalsRouter } from "./routes/evals.js";
+import { feedbackRouter } from "./routes/feedback.js";
+import { hrAgentRouter } from "./routes/hr-agent.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -82,6 +85,9 @@ export function createApp() {
   app.use("/api/v1/crew-bridge", crewBridgeRouter);      // Phase 12
   app.use("/api/v1/federation", federationRouter);       // Phase 14
   app.use("/api/v1/webhooks", webhooksRouter);           // Phase 15
+  app.use("/api/v1/evals", evalsRouter);                 // Phase 16
+  app.use("/api/v1/feedback", feedbackRouter);           // Phase 16
+  app.use("/api/v1/hr", hrAgentRouter);                  // gated capability, disabled by default
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {

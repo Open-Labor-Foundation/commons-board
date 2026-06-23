@@ -6,16 +6,26 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
 
 const NAV = [
-  { href: "/dashboard", label: "Board", icon: "◎" },
+  { href: "/dashboard", label: "Dashboard", icon: "◎" },
+  { href: "/board", label: "Board", icon: "⬟" },
+  { href: "/artifacts", label: "Artifacts", icon: "◫" },
+  { href: "/onboarding", label: "Onboarding", icon: "◌" },
+  { href: "/launch", label: "Launch", icon: "◈" },
   { href: "/org", label: "Org", icon: "⬡" },
+  { href: "/approvals", label: "Approvals", icon: "◎", badge: "approvals" },
+  { href: "/votes", label: "Votes", icon: "◉" },
+  { href: "/governance", label: "Governance", icon: "⬤" },
+  { href: "/cadence", label: "Cadence", icon: "◷" },
+  { href: "/execution", label: "Execution", icon: "▷" },
+  { href: "/devloop", label: "Dev Loop", icon: "⟳" },
+  { href: "/autonomous", label: "Autonomous", icon: "⊛" },
+  { href: "/bi", label: "BI", icon: "▣" },
+  { href: "/level4", label: "Level 4", icon: "⧊" },
   { href: "/treasury", label: "Treasury", icon: "◈" },
   { href: "/billing", label: "Billing", icon: "◉" },
-  { href: "/level4", label: "Level 4", icon: "⧊" },
-  { href: "/artifacts", label: "Artifacts", icon: "◫" },
-  { href: "/governance", label: "Governance", icon: "⬟" },
   { href: "/federation", label: "Federation", icon: "⬡" },
   { href: "/settings", label: "Settings", icon: "⚙" },
-];
+] as const;
 
 type BadgeCounts = { approvals: number; actions: number };
 
@@ -48,6 +58,10 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
   if (isSetup) return <>{children}</>;
 
   const urgent = badges.approvals + badges.actions;
+  const badgeFor = (key: string | undefined) => {
+    if (key === "approvals") return badges.approvals;
+    return 0;
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
@@ -94,10 +108,10 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
           paddingTop: 8,
           overflowY: "auto",
         }}>
-          {NAV.map(({ href, label, icon }) => {
+          {NAV.map(({ href, label, icon, ...rest }) => {
+            const badge = "badge" in rest ? (rest as { badge?: string }).badge : undefined;
             const active = pathname === href || (pathname.startsWith(href + "/") && href !== "/");
-            const hasBadge =
-              (href === "/dashboard" && urgent > 0) ? urgent : 0;
+            const hasBadge = badge ? badgeFor(badge) : (href === "/dashboard" && urgent > 0) ? urgent : 0;
             return (
               <Link
                 key={href}
