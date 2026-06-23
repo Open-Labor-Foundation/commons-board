@@ -390,7 +390,27 @@ function L6Form({ onSubmit, onSkip, busy }: { onSubmit: (p: object) => void; onS
   );
 }
 
-function L7Form({ assumptions, onConfirm, busy }: { assumptions: string; onConfirm: () => void; busy: boolean }) {
+function Spinner() {
+  return (
+    <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+      {[0, 1, 2].map(i => (
+        <span key={i} style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: "var(--brand)", opacity: 0.6,
+          animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+        }} />
+      ))}
+      <style>{`@keyframes pulse { 0%,100%{opacity:0.2;transform:scale(0.8)} 50%{opacity:1;transform:scale(1)} }`}</style>
+    </span>
+  );
+}
+
+function L7Form({ assumptions, loading, onConfirm, busy }: {
+  assumptions: string;
+  loading: boolean;
+  onConfirm: (corrections: string) => void;
+  busy: boolean;
+}) {
   const [corrections, setCorrections] = useState("");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -400,16 +420,23 @@ function L7Form({ assumptions, onConfirm, busy }: { assumptions: string; onConfi
           Based on your answers, here&apos;s what your board will operate with. Review carefully before activating.
         </p>
       </div>
-      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "16px 20px" }}>
-        <p style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>
-          {assumptions || "Loading assumptions…"}
-        </p>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "16px 20px", minHeight: 72 }}>
+        {loading ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Spinner />
+            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Summarising your answers…</span>
+          </div>
+        ) : (
+          <p style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>
+            {assumptions}
+          </p>
+        )}
       </div>
       <Field label="Corrections or notes" hint="Anything above that needs adjusting? (optional)">
         <textarea value={corrections} onChange={e => setCorrections(e.target.value)} rows={3}
           placeholder="e.g. The budget range should be medium, not low…" style={{ ...inputStyle, resize: "vertical" }} />
       </Field>
-      <button onClick={onConfirm} disabled={busy} style={{ ...btnStyle, opacity: busy ? 0.5 : 1 }}>
+      <button onClick={() => onConfirm(corrections)} disabled={busy || loading} style={{ ...btnStyle, opacity: (busy || loading) ? 0.5 : 1 }}>
         {busy ? "Activating board…" : "Activate Board"}
       </button>
     </div>
@@ -424,6 +451,7 @@ export default function LaunchPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<SessionState | null>(null);
   const [assumptions, setAssumptions] = useState("");
+  const [assumptionsLoading, setAssumptionsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -441,6 +469,15 @@ export default function LaunchPage() {
     setStep(data.state.currentSection);
   }
 
+  function advanceState(state: SessionState, id: string) {
+    setSessionState(state);
+    if (state.currentSection === "L7") {
+      loadAssumptionsForId(id);
+    } else {
+      setStep(state.currentSection);
+    }
+  }
+
   async function submitSection(section: SectionKey, payload: object) {
     if (!sessionId) return;
     setBusy(true);
@@ -454,12 +491,7 @@ export default function LaunchPage() {
       setError("Failed to save this section. Please try again.");
       return;
     }
-    setSessionState(data.state);
-    if (data.state.readyToFinalize) {
-      await loadAssumptions();
-    } else {
-      setStep(data.state.currentSection);
-    }
+    advanceState(data.state, sessionId);
   }
 
   async function skipSection(section: SectionKey) {
@@ -475,25 +507,31 @@ export default function LaunchPage() {
       setError("Failed to skip this section. Please try again.");
       return;
     }
-    setSessionState(data.state);
-    if (data.state.readyToFinalize) {
-      await loadAssumptions();
-    } else {
-      setStep(data.state.currentSection);
-    }
+    advanceState(data.state, sessionId);
   }
 
-  async function loadAssumptions() {
-    if (!sessionId) return;
-    const data = await apiFetch<{ assumptions: string }>(`/api/v1/launch/sessions/${sessionId}/assumptions`);
-    setAssumptions(data?.assumptions ?? "");
+  async function loadAssumptionsForId(id: string) {
+    setAssumptionsLoading(true);
     setStep("L7");
+    const data = await apiFetch<{ assumptions: string }>(`/api/v1/launch/sessions/${id}/assumptions`);
+    setAssumptions(data?.assumptions ?? "");
+    setAssumptionsLoading(false);
   }
 
-  async function finalize() {
+  async function finalize(corrections: string) {
     if (!sessionId) return;
     setBusy(true);
     setError("");
+    // L7 must be submitted with confirmed:true before the state machine allows finalize
+    const { data: l7, status: l7Status } = await apiPost<{ state: SessionState }>(
+      `/api/v1/launch/sessions/${sessionId}/sections/L7`,
+      { payload: { confirmed: true, ...(corrections.trim() ? { corrections } : {}) } }
+    );
+    if (l7Status >= 400 || !l7?.state) {
+      setBusy(false);
+      setError("Failed to confirm setup. Please try again.");
+      return;
+    }
     const { data, status } = await apiPost(`/api/v1/launch/sessions/${sessionId}/finalize`, {});
     setBusy(false);
     if (status >= 400 || !data) {
@@ -554,7 +592,7 @@ export default function LaunchPage() {
         {step === "L4" && <L4Form {...sectionProps} onSubmit={wrapSectionSubmit("L4")} />}
         {step === "L5" && <L5Form {...sectionProps} onSubmit={wrapSectionSubmit("L5")} />}
         {step === "L6" && <L6Form {...sectionProps} onSubmit={wrapSectionSubmit("L6")} />}
-        {step === "L7" && <L7Form assumptions={assumptions} onConfirm={finalize} busy={busy} />}
+        {step === "L7" && <L7Form assumptions={assumptions} loading={assumptionsLoading} onConfirm={finalize} busy={busy} />}
       </div>
     </div>
   );

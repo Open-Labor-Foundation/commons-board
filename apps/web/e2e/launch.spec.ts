@@ -92,31 +92,39 @@ test.describe("Launch (Board Setup) page", () => {
     await expect(page.getByRole("button", { name: "Skip" })).toBeVisible();
   });
 
-  test("readyToFinalize shows Review form with assumptions", async ({ page }) => {
-    const finalState = { currentSection: "L7", completedSections: ["L0","L1","L2","L3","L4","L5","L6","L7"], answers: {}, readyToFinalize: true };
-    await page.route("/api/v1/launch/sessions", r => r.fulfill({ json: { session_id: "ls-1", state: { currentSection: "L6", completedSections: [], answers: {}, readyToFinalize: false } } }));
-    await page.route("/api/v1/launch/sessions/ls-1/sections/L6", r => r.fulfill({ json: { state: finalState } }));
+  test("advancing to L7 loads assumptions and shows Review form", async ({ page }) => {
+    const l7State = { currentSection: "L7", completedSections: ["L0"], answers: {}, readyToFinalize: false };
+    await page.route("/api/v1/launch/sessions", r => r.fulfill({ json: { session_id: "ls-1", state: { currentSection: "L0", completedSections: [], answers: {}, readyToFinalize: false } } }));
+    await page.route("/api/v1/launch/sessions/ls-1/sections/L0", r => r.fulfill({ json: { state: l7State } }));
     await page.route("/api/v1/launch/sessions/ls-1/assumptions", r => r.fulfill({ json: { assumptions: "Your board will operate in healthcare with a $2,500/mo retainer." } }));
     await page.goto("/launch");
     await page.getByRole("button", { name: "Begin board setup" }).click();
-    await page.getByRole("button", { name: "Skip" }).click();
+    await page.getByRole("button", { name: "Skip for now" }).click();
     await expect(page.getByRole("heading", { name: "Review Your Board Setup" })).toBeVisible();
     await expect(page.getByText("Your board will operate in healthcare")).toBeVisible();
     await expect(page.getByRole("button", { name: "Activate Board" })).toBeVisible();
   });
 
-  test("Activate Board calls /finalize and shows success", async ({ page }) => {
+  test("Activate Board submits L7 then finalize and shows success", async ({ page }) => {
+    let l7Submitted = false;
     let finalized = false;
+    const l7State = { currentSection: "L7", completedSections: ["L0"], answers: {}, readyToFinalize: false };
     await page.route("/api/v1/launch/sessions", r => r.fulfill({ json: { session_id: "ls-1", state: { currentSection: "L0", completedSections: [], answers: {}, readyToFinalize: false } } }));
-    await page.route("/api/v1/launch/sessions/ls-1/sections/L0", r => r.fulfill({ json: { state: { currentSection: "L7", completedSections: ["L0"], answers: {}, readyToFinalize: true } } }));
+    await page.route("/api/v1/launch/sessions/ls-1/sections/L0", r => r.fulfill({ json: { state: l7State } }));
     await page.route("/api/v1/launch/sessions/ls-1/assumptions", r => r.fulfill({ json: { assumptions: "Test assumptions." } }));
+    await page.route("/api/v1/launch/sessions/ls-1/sections/L7", async r => {
+      l7Submitted = true;
+      await r.fulfill({ json: { state: { ...l7State, readyToFinalize: true } } });
+    });
     await page.route("/api/v1/launch/sessions/ls-1/finalize", async r => { finalized = true; await r.fulfill({ json: { launch_blueprint_instantiated: true } }); });
     await page.goto("/launch");
     await page.getByRole("button", { name: "Begin board setup" }).click();
     await page.getByRole("button", { name: "Skip for now" }).click();
+    await expect(page.getByText("Test assumptions.")).toBeVisible();
     await page.getByRole("button", { name: "Activate Board" }).click();
-    expect(finalized).toBe(true);
     await expect(page.getByText("Board activated")).toBeVisible();
+    expect(l7Submitted).toBe(true);
+    expect(finalized).toBe(true);
   });
 
   test("progress bar shows completed sections", async ({ page }) => {
