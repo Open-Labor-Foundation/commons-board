@@ -51,8 +51,8 @@ export default function OnboardingPage() {
     setSending(false);
     if (!data) { setError("No response from server."); return; }
     setState(data);
-    if (data.prompt) setMessages(prev => [...prev, { role: "system", text: data.prompt }]);
-    if (data.complete) setMessages(prev => [...prev, { role: "system", text: "Interview complete. Ready to generate your board artifacts." }]);
+    if (data.prompt) setMessages(prev => [...prev, { role: "system" as const, text: data.prompt! }]);
+    if (data.complete) setMessages(prev => [...prev, { role: "system" as const, text: "Interview complete. Ready to generate your board artifacts." }]);
   }
 
   async function confirm() {

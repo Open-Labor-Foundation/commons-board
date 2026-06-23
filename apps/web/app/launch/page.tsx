@@ -50,7 +50,7 @@ export default function LaunchPage() {
     if (data) {
       setSessionId(id);
       setState(data);
-      if (data.prompt) setMessages([{ role: "system", text: data.prompt }]);
+      if (data.prompt) setMessages([{ role: "system" as const, text: data.prompt }]);
     }
   }, []);
 
@@ -62,7 +62,7 @@ export default function LaunchPage() {
     if (!data?.session_id) { setError("Failed to start launch session."); return; }
     setSessionId(data.session_id);
     setState(data);
-    if (data.prompt) setMessages([{ role: "system", text: data.prompt }]);
+    if (data.prompt) setMessages([{ role: "system" as const, text: data.prompt }]);
     setExisting(null);
   }
 
@@ -77,8 +77,8 @@ export default function LaunchPage() {
     setSending(false);
     if (!data) { setError("No response from server."); return; }
     setState(data);
-    if (data.prompt) setMessages(prev => [...prev, { role: "system", text: data.prompt }]);
-    if (data.complete) setMessages(prev => [...prev, { role: "system", text: "All sections complete. Ready to finalize your board setup." }]);
+    if (data.prompt) setMessages(prev => [...prev, { role: "system" as const, text: data.prompt! }]);
+    if (data.complete) setMessages(prev => [...prev, { role: "system" as const, text: "All sections complete. Ready to finalize your board setup." }]);
   }
 
   async function confirm() {
