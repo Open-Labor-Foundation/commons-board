@@ -48,20 +48,30 @@ export default function SetupPage() {
   async function saveAndFinish() {
     setSaving(true);
     setError("");
+
+    const providerDef = PROVIDERS.find(p => p.id === provider);
     const { data, status } = await apiPut("/api/v1/settings", {
-      workspaceName: orgName.trim(),
-      governanceMode,
-      providerName: provider,
-      modelName: modelName.trim(),
-      apiKeyEnv: apiKeyEnv.trim(),
+      org_name: orgName.trim(),
+      governance_mode: governanceMode,
+      providers: [{
+        provider_id: provider,
+        kind: "hosted_api",
+        display_name: providerDef?.label ?? provider,
+        model: modelName.trim(),
+        api_key_env: apiKeyEnv.trim() || null,
+        endpoint: null,
+        options: {},
+      }],
+      active_provider_id: provider,
     });
+
     setSaving(false);
     if (!data || status >= 400) {
       setError("Failed to save settings. Check that the API is reachable.");
       return;
     }
     setStep("done");
-    setTimeout(() => router.replace("/dashboard"), 1200);
+    router.replace("/dashboard");
   }
 
   return (
@@ -83,7 +93,6 @@ export default function SetupPage() {
         boxShadow: "var(--shadow)",
         overflow: "hidden",
       }}>
-        {/* Header */}
         <div style={{ background: "var(--brand)", padding: "20px 28px" }}>
           <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, marginBottom: 4 }}>commons-board</p>
           <h1 style={{ color: "#fff", fontSize: 20, fontWeight: 700, margin: 0 }}>
@@ -91,7 +100,6 @@ export default function SetupPage() {
           </h1>
         </div>
 
-        {/* Step indicators */}
         {step !== "done" && (
           <div style={{ display: "flex", borderBottom: "1px solid var(--border)" }}>
             {(["workspace", "provider"] as Step[]).map((s, i) => (

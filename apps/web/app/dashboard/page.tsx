@@ -157,9 +157,9 @@ export default function DashboardPage() {
             <Metric label="Treasury" value={formatCurrency(treasury.totalIncome, treasury.currency)} />
             <Metric label="Available" value={formatCurrency(treasury.availableForDistribution, treasury.currency)} />
           </>}
-          {level4dash && <>
+          {level4dash?.metrics?.actions && <>
             <Metric label="L4 actions" value={String(level4dash.metrics.actions.total)} />
-            <Metric label="Prospects" value={String(level4dash.metrics.outreach.prospects)} />
+            <Metric label="Prospects" value={String(level4dash.metrics.outreach?.prospects ?? 0)} />
           </>}
         </div>
       )}
