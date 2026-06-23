@@ -25,7 +25,7 @@ const NAV = [
   { href: "/billing", label: "Billing", icon: "◉" },
   { href: "/federation", label: "Federation", icon: "⬡" },
   { href: "/settings", label: "Settings", icon: "⚙" },
-] as const;
+];
 
 type BadgeCounts = { approvals: number; actions: number };
 
@@ -108,10 +108,9 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
           paddingTop: 8,
           overflowY: "auto",
         }}>
-          {NAV.map(({ href, label, icon, ...rest }) => {
-            const badge = "badge" in rest ? (rest as { badge?: string }).badge : undefined;
-            const active = pathname === href || (pathname.startsWith(href + "/") && href !== "/");
-            const hasBadge = badge ? badgeFor(badge) : (href === "/dashboard" && urgent > 0) ? urgent : 0;
+          {NAV.map(({ href, label, icon, badge }) => {
+            const active = pathname === href || pathname.startsWith(href + "/");
+            const hasBadge = badge ? badgeFor(badge as string) : (href === "/dashboard" && urgent > 0) ? urgent : 0;
             return (
               <Link
                 key={href}
