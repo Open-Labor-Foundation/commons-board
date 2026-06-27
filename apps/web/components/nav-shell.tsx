@@ -29,8 +29,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: "Team",
     items: [
-      { href: "/org",   label: "Board Roster" },
-      { href: "/votes", label: "Member Votes" },
+      { href: "/org",     label: "Board Roster" },
+      { href: "/workers", label: "Our Workers" },
+      { href: "/votes",   label: "Member Votes" },
     ],
   },
   {

@@ -45,6 +45,7 @@ import { hrAgentRouter } from "./routes/hr-agent.js";
 import { meetingsRouter } from "./routes/meetings.js";
 import { actionsRouter } from "./routes/actions.js";
 import { demoRouter } from "./routes/demo.js";
+import { workersRouter } from "./routes/workers.js";
 import { idempotencyGuard } from "./lib/idempotency.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
@@ -96,6 +97,7 @@ export function createApp() {
   app.use("/api/v1/meetings", meetingsRouter);           // meetings + executive sessions
   app.use("/api/v1/sim", actionsRouter);                 // actions + ledger (extends sim)
   app.use("/api/v1/demo", demoRouter);                   // demo mode seeding
+  app.use("/api/v1/workers", workersRouter);             // agent workforce visibility
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {

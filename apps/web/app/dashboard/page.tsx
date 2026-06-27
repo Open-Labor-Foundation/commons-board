@@ -97,12 +97,20 @@ function ChairCard({ chair, onAsk }: { chair: Chair; onAsk: (name: string) => vo
           Handles: {owns.map(o => o.replace(/_/g, " ")).join(", ")}
         </p>
       )}
-      <button
-        onClick={() => onAsk(chair.name)}
-        style={{ marginTop: 2, background: "none", border: `1px solid ${color}`, color, borderRadius: "var(--radius)", padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}
-      >
-        Ask {chair.name} →
-      </button>
+      <div style={{ display: "flex", gap: 6, marginTop: 2, flexWrap: "wrap" }}>
+        <button
+          onClick={() => onAsk(chair.name)}
+          style={{ background: "none", border: `1px solid ${color}`, color, borderRadius: "var(--radius)", padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+        >
+          Ask →
+        </button>
+        <Link
+          href={`/board/${chair.chair_id}`}
+          style={{ background: color + "12", border: `1px solid ${color}40`, color, borderRadius: "var(--radius)", padding: "5px 10px", fontSize: 12, fontWeight: 600, textDecoration: "none" }}
+        >
+          View team →
+        </Link>
+      </div>
     </div>
   );
 }
