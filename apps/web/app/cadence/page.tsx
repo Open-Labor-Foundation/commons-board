@@ -89,7 +89,7 @@ export default function CadencePage() {
   return (
     <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 900 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, flex: 1 }}>Cadence</h2>
+        <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, flex: 1 }}>Briefing Schedule</h2>
         <button onClick={runCadence} disabled={running} style={{ background: "var(--brand)", color: "#fff", padding: "7px 16px", fontSize: 13, fontWeight: 600 }}>
           {running ? "Running…" : "Run now"}
         </button>

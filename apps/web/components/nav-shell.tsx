@@ -10,46 +10,35 @@ type NavSection = { heading: string; items: NavItem[] };
 
 const NAV_SECTIONS: NavSection[] = [
   {
-    heading: "Board",
+    heading: "My Board",
     items: [
-      { href: "/dashboard",  label: "Dashboard" },
-      { href: "/board",      label: "Requests" },
-      { href: "/approvals",  label: "Approvals", badge: "approvals" },
-      { href: "/governance", label: "Decision Log" },
-    ],
-  },
-  {
-    heading: "Operations",
-    items: [
-      { href: "/cadence",    label: "Schedule" },
-      { href: "/execution",  label: "Execution" },
-      { href: "/autonomous", label: "Automation" },
-      { href: "/devloop",    label: "Dev Cycles" },
+      { href: "/dashboard",  label: "Overview" },
+      { href: "/board",      label: "Board Requests" },
+      { href: "/approvals",  label: "Decisions Needed", badge: "approvals" },
+      { href: "/governance", label: "Board Minutes" },
     ],
   },
   {
     heading: "Business",
     items: [
-      { href: "/level4",   label: "Outreach" },
-      { href: "/treasury", label: "Treasury" },
-      { href: "/billing",  label: "Billing" },
-      { href: "/bi",       label: "Analytics" },
+      { href: "/billing",  label: "Revenue" },
+      { href: "/treasury", label: "Finances" },
+      { href: "/bi",       label: "Insights" },
     ],
   },
   {
-    heading: "Org",
+    heading: "Team",
     items: [
-      { href: "/org",        label: "Specialists" },
-      { href: "/votes",      label: "Votes" },
-      { href: "/federation", label: "Network" },
+      { href: "/org",   label: "Board Roster" },
+      { href: "/votes", label: "Member Votes" },
     ],
   },
   {
-    heading: "Config",
+    heading: "Settings",
     items: [
-      { href: "/artifacts",  label: "Artifacts" },
-      { href: "/onboarding", label: "Board Interview" },
-      { href: "/launch",     label: "Launch Wizard" },
+      { href: "/cadence",    label: "Briefing Schedule" },
+      { href: "/artifacts",  label: "Board Documents" },
+      { href: "/onboarding", label: "Board Profile" },
       { href: "/settings",   label: "Settings" },
     ],
   },
@@ -82,7 +71,6 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
     return () => clearInterval(iv);
   }, []);
 
-  // Setup pages don't use the nav shell
   const isSetup = pathname === "/setup" || pathname === "/";
   if (isSetup) return <>{children}</>;
 
@@ -114,7 +102,7 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
         {badges.approvals > 0 && (
           <Link href="/approvals" style={{ textDecoration: "none" }}>
             <span style={{ background: "#ef4444", color: "#fff", borderRadius: 12, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>
-              {badges.approvals} pending
+              {badges.approvals} decision{badges.approvals !== 1 ? "s" : ""} pending
             </span>
           </Link>
         )}
@@ -137,8 +125,8 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
           {boardReady === false && pathname !== "/onboarding" && (
             <Link href="/onboarding" style={{ textDecoration: "none", margin: "0 10px 10px" }}>
               <div style={{ background: "var(--brand-light)", border: "1px solid var(--brand)", borderRadius: "var(--radius)", padding: "9px 12px" }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: "var(--brand)", margin: 0 }}>Board not configured</p>
-                <p style={{ fontSize: 11, color: "var(--brand)", margin: "2px 0 0", opacity: 0.8 }}>Complete interview →</p>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "var(--brand)", margin: 0 }}>Board not set up yet</p>
+                <p style={{ fontSize: 11, color: "var(--brand)", margin: "2px 0 0", opacity: 0.8 }}>Complete your board profile →</p>
               </div>
             </Link>
           )}

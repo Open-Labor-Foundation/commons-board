@@ -97,7 +97,7 @@ export default function TreasuryPage() {
 
   return (
     <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 960 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Treasury</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Finances</h2>
 
       {/* Balance overview */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>

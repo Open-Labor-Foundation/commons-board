@@ -6,11 +6,11 @@ import { apiPost } from "../../lib/api";
 
 // Interview sections in order — mirrors the API's section sequence.
 const SECTIONS = [
-  { id: "business_profile",  label: "About your org" },
-  { id: "objective_config",  label: "Goals & KPIs" },
-  { id: "autonomy_policy",   label: "Autonomy & approvals" },
-  { id: "cadence_protocol",  label: "Meeting cadence" },
-  { id: "agent_blueprint",   label: "Board chairs" },
+  { id: "business_profile",  label: "About your business" },
+  { id: "objective_config",  label: "Your goals" },
+  { id: "autonomy_policy",   label: "What needs sign-off" },
+  { id: "cadence_protocol",  label: "Reporting schedule" },
+  { id: "agent_blueprint",   label: "Board makeup" },
 ];
 
 type SessionState = {
@@ -91,9 +91,9 @@ export default function OnboardingPage() {
       <div style={{ padding: "14px 24px 0", borderBottom: "1px solid var(--border)", background: "var(--surface)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Board Interview</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Set Up Your Board</h2>
             <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 0" }}>
-              Answer questions about your organization to configure the board.
+              Tell us about your business and we'll configure your board of advisors.
             </p>
           </div>
           {completedCount > 0 && (

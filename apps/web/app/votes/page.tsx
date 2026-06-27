@@ -112,7 +112,7 @@ export default function VotesPage() {
 
   return (
     <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 900 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Collective Governance</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Member Votes</h2>
 
       <div style={{ display: "flex", borderBottom: "1px solid var(--border)" }}>
         {(["votes", "amendments"] as const).map(t => (

@@ -88,7 +88,7 @@ export default function BillingPage() {
 
   return (
     <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 960 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Billing</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Revenue</h2>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
         <StatBox label="MRR" value={formatCurrency(metrics?.mrr ?? 0, cur)} />

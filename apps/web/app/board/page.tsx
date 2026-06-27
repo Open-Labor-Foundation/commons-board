@@ -73,7 +73,7 @@ export default function BoardPage() {
 
   return (
     <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 1000 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Board</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Board Requests</h2>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "14px 16px" }}>

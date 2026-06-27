@@ -74,7 +74,7 @@ export default function BiPage() {
 
   return (
     <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20, maxWidth: 1000 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>BI &amp; Observability</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Insights</h2>
 
       <div style={{ display: "flex", borderBottom: "1px solid var(--border)" }}>
         {(["bi", "obs", "events"] as const).map(t => (
