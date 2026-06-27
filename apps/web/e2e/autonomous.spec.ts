@@ -7,7 +7,7 @@ const EXPERIMENTS = { experiments: [{ experiment_id: "exp-1", name: "Pricing A/B
 test.describe("Autonomous Evolution page", () => {
   test.beforeEach(async ({ page }) => {
     await mockCommon(page);
-    await page.route("/api/v1/autonomous", r => r.fulfill({ json: CYCLES }));
+    await page.route("/api/v1/autonomous/cycles", r => r.fulfill({ json: CYCLES }));
     await page.route("/api/v1/autonomous/experiments", r => r.fulfill({ json: EXPERIMENTS }));
   });
 
@@ -27,7 +27,7 @@ test.describe("Autonomous Evolution page", () => {
   });
 
   test("empty cycles state shown when no cycles", async ({ page }) => {
-    await page.route("/api/v1/autonomous", r => r.fulfill({ json: { cycles: [] } }));
+    await page.route("/api/v1/autonomous/cycles", r => r.fulfill({ json: { cycles: [] } }));
     await page.goto("/autonomous");
     await expect(page.getByText("No evolution cycles run yet.")).toBeVisible();
   });

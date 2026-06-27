@@ -122,6 +122,19 @@ type ShutdownReport = {
   recommendations: string[];
 };
 
+type CycleRunRecord = {
+  cycle_id: string;
+  workspace_id: string;
+  status: "completed" | "partial";
+  domains_run: string[];
+  actions_taken: number;
+  briefs_generated: number;
+  pivot_triggered: boolean;
+  shutdown_triggered: boolean;
+  started_at: string;
+  completed_at: string;
+};
+
 type VentureMemoryEntry = {
   id: string;
   workspaceId: string;
@@ -147,6 +160,7 @@ const shutdownReportsKey = (w: string) => `shutdown-reports/${w}`;
 const ventureMemoryKey = (w: string) => `venture-memory/${w}`;
 const boardRequestsKey = (w: string) => `board-requests/${w}`;
 const approvalsKey = (w: string) => `approvals/${w}`;
+const cyclesKey = (w: string) => `autonomous-cycles/${w}`;
 
 // ---------------------------------------------------------------------------
 // Market signal helpers
@@ -749,7 +763,24 @@ autonomousCompanyRouter.post("/cycle/run", requireRole(["admin", "operator"]), (
     persistRdPacket(workspaceId, packet);
   }
 
+  const completedAt = new Date().toISOString();
+  const cycleRecord: CycleRunRecord = {
+    cycle_id: randomUUID(),
+    workspace_id: workspaceId,
+    status: "completed",
+    domains_run: ["growth", "finance", "ops"],
+    actions_taken: experimentResult.killed + experimentResult.scaled,
+    briefs_generated: 0,
+    pivot_triggered: !!pivotEvent,
+    shutdown_triggered: !!shutdownReport,
+    started_at: now,
+    completed_at: completedAt,
+  };
+  const existingCycles = readJson<CycleRunRecord[]>(cyclesKey(workspaceId), []);
+  writeJsonAtomic(cyclesKey(workspaceId), [...existingCycles, cycleRecord].slice(-50));
+
   res.status(200).json({
+    cycle_id: cycleRecord.cycle_id,
     latestSignal,
     experimentResult: {
       killed: experimentResult.killed,
@@ -760,6 +791,13 @@ autonomousCompanyRouter.post("/cycle/run", requireRole(["admin", "operator"]), (
     capitalPlan,
     shutdownReport
   });
+});
+
+/** GET /api/v1/autonomous/cycles */
+autonomousCompanyRouter.get("/cycles", (req: Request, res: Response) => {
+  const { workspaceId } = req.ctx!;
+  const cycles = readJson<CycleRunRecord[]>(cyclesKey(workspaceId), []);
+  res.status(200).json({ cycles: cycles.slice().reverse(), total: cycles.length });
 });
 
 /** GET /api/v1/autonomous/capital-plans */

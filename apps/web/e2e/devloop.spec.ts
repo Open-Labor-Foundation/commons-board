@@ -6,7 +6,7 @@ const STATE = { tasks: [{ task_id: "t-1", title: "Fix auth bug", type: "bug", do
 test.describe("Dev Loop page", () => {
   test.beforeEach(async ({ page }) => {
     await mockCommon(page);
-    await page.route("/api/v1/devloop", r => r.fulfill({ json: STATE }));
+    await page.route("/api/v1/devloop/tasks", r => r.fulfill({ json: STATE }));
   });
 
   test("shows stats and active tasks by default", async ({ page }) => {
@@ -38,7 +38,7 @@ test.describe("Dev Loop page", () => {
 
   test("Create sends POST with correct payload", async ({ page }) => {
     let capturedBody: Record<string, unknown> | null = null;
-    await page.route("/api/v1/devloop", async r => {
+    await page.route("/api/v1/devloop/tasks", async r => {
       if (r.request().method() === "POST") {
         capturedBody = JSON.parse(r.request().postData() ?? "{}");
         await r.fulfill({ json: { task_id: "t-3", title: "New task", status: "pending" } });

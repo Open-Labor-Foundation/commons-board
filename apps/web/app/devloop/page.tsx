@@ -36,7 +36,7 @@ export default function DevloopPage() {
   const DOMAINS = ["ops", "it", "security", "hr", "rnd", "finance", "growth", "sales", "legal", "product", "strategy"];
 
   const load = useCallback(async () => {
-    const data = await apiFetch<DevloopState>("/api/v1/devloop");
+    const data = await apiFetch<DevloopState>("/api/v1/devloop/tasks");
     setState(data);
     setLoading(false);
   }, []);
@@ -46,7 +46,7 @@ export default function DevloopPage() {
   async function createTask() {
     if (!form.title.trim()) return;
     setSubmitting(true);
-    await apiPost("/api/v1/devloop", {
+    await apiPost("/api/v1/devloop/tasks", {
       title: form.title.trim(),
       type: form.type,
       domain: form.domain,

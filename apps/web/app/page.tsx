@@ -8,13 +8,20 @@ export default function Root() {
   const router = useRouter();
 
   useEffect(() => {
-    apiFetch<{ org_name?: string; workspace_id?: string }>("/api/v1/settings").then((s) => {
-      if (!s || !s.org_name) {
+    (async () => {
+      const settings = await apiFetch<{ org_name?: string }>("/api/v1/settings");
+      if (!settings?.org_name) {
         router.replace("/setup");
-      } else {
-        router.replace("/dashboard");
+        return;
       }
-    });
+      // Check whether the board has been configured (business_profile artifact exists).
+      const bp = await apiFetch<{ artifact_id?: string }>("/api/v1/artifacts/business_profile/latest");
+      if (!bp?.artifact_id) {
+        router.replace("/onboarding");
+        return;
+      }
+      router.replace("/dashboard");
+    })();
   }, [router]);
 
   return (

@@ -8,6 +8,11 @@
 import type { InferenceProvider, InferenceRequest, InferenceResponse, ProviderConfig } from "@commons-board/shared";
 import { registerProvider, resolveApiKey } from "./index.js";
 
+const KNOWN_ENDPOINTS: Record<string, string> = {
+  featherless: "https://api.featherless.ai/v1",
+  openai: "https://api.openai.com/v1",
+};
+
 class HostedApiProvider implements InferenceProvider {
   readonly kind = "hosted_api" as const;
   readonly provider_id: string;
@@ -17,7 +22,7 @@ class HostedApiProvider implements InferenceProvider {
   }
 
   async complete(req: InferenceRequest): Promise<InferenceResponse> {
-    const base = (this.config.endpoint ?? "").replace(/\/$/, "");
+    const base = (this.config.endpoint ?? KNOWN_ENDPOINTS[this.config.provider_id] ?? "").replace(/\/$/, "");
     if (!base) {
       return this.fail("hosted_api provider has no endpoint configured");
     }

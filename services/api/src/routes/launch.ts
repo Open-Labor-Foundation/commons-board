@@ -23,6 +23,7 @@ import { requireContext, requireRole } from "../lib/auth.js";
 import { writeArtifact, getArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { LaunchInterviewStateMachine } from "../agent-runtime/launch/state-machine.js";
+import { mapLaunchToExecutionArtifacts } from "../agent-runtime/launch/generate-artifacts.js";
 import type { LaunchSection } from "../agent-runtime/launch/types.js";
 
 export const launchRouter = Router();
@@ -186,6 +187,17 @@ launchRouter.post("/sessions/:sessionId/finalize", requireRole(["admin", "operat
       };
       const bpRecord = writeArtifact(workspaceId, "agent_blueprint", launchBlueprint, userId);
       createdArtifacts.push({ artifact_type: bpRecord.type, version: bpRecord.version, artifact_id: bpRecord.artifact_id });
+    }
+
+    // Map launch answers → execution-required artifacts so the engine can run immediately
+    const executionArtifacts = mapLaunchToExecutionArtifacts(workspaceId, result.artifacts, machine.getState().answers);
+    const EXECUTION_ARTIFACT_TYPES = ["business_profile", "objective_config", "autonomy_policy", "cadence_protocol"] as const;
+    for (const type of EXECUTION_ARTIFACT_TYPES) {
+      const existing = getArtifact(workspaceId, type);
+      if (!existing) {
+        const rec = writeArtifact(workspaceId, type, executionArtifacts[type], userId);
+        createdArtifacts.push({ artifact_type: rec.type, version: rec.version, artifact_id: rec.artifact_id });
+      }
     }
 
     sessions.delete(sessionId);

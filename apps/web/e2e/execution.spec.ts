@@ -1,19 +1,24 @@
 import { test, expect } from "@playwright/test";
 import { mockCommon } from "./helpers";
 
-const STATE = { active_runs: 1, total_runs: 5, recent_runs: [{ run_id: "run-1", title: "Generate report", action_type: "task", domain: "ops", status: "completed", started_at: new Date().toISOString(), completed_at: new Date().toISOString() }] };
+const STATE = {
+  runs: [
+    { run_id: "run-1", initiated_by: "admin", sim_mode: false, status: "completed", action_count: 7, blocked_count: 1, approval_count: 2, auto_count: 4, initiated_at: new Date().toISOString(), completed_at: new Date().toISOString() },
+  ],
+  total: 1,
+};
 
 test.describe("Execution page", () => {
   test.beforeEach(async ({ page }) => {
     await mockCommon(page);
-    await page.route("/api/v1/execution", r => r.fulfill({ json: STATE }));
+    await page.route("/api/v1/execution/runs", r => r.fulfill({ json: STATE }));
   });
 
   test("shows stats and recent runs", async ({ page }) => {
     await page.goto("/execution");
     await expect(page.getByText("Execution Runtime")).toBeVisible();
-    await expect(page.getByText("Active runs")).toBeVisible();
-    await expect(page.getByText("Generate report")).toBeVisible();
+    await expect(page.getByText("Total runs")).toBeVisible();
+    await expect(page.getByText("Run by admin")).toBeVisible();
     await expect(page.getByText("completed")).toBeVisible();
   });
 
@@ -47,7 +52,7 @@ test.describe("Execution page", () => {
 
   test("expanding a run shows run_id details", async ({ page }) => {
     await page.goto("/execution");
-    await page.getByText("Generate report").click();
+    await page.getByText("Run by admin").click();
     await expect(page.getByText("run_id: run-1")).toBeVisible();
   });
 });

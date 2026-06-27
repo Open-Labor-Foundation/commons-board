@@ -42,6 +42,10 @@ import { webhooksRouter } from "./routes/webhooks.js";
 import { evalsRouter } from "./routes/evals.js";
 import { feedbackRouter } from "./routes/feedback.js";
 import { hrAgentRouter } from "./routes/hr-agent.js";
+import { meetingsRouter } from "./routes/meetings.js";
+import { actionsRouter } from "./routes/actions.js";
+import { demoRouter } from "./routes/demo.js";
+import { idempotencyGuard } from "./lib/idempotency.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 
 export function createApp() {
@@ -51,6 +55,7 @@ export function createApp() {
   app.use(basicRateLimitMiddleware);
   app.use(express.json({ limit: "1mb" }));
   app.use(correlationId);
+  app.use(idempotencyGuard);
 
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({ status: "ok", service: "commons-board-api" });
@@ -88,6 +93,9 @@ export function createApp() {
   app.use("/api/v1/evals", evalsRouter);                 // Phase 16
   app.use("/api/v1/feedback", feedbackRouter);           // Phase 16
   app.use("/api/v1/hr", hrAgentRouter);                  // gated capability, disabled by default
+  app.use("/api/v1/meetings", meetingsRouter);           // meetings + executive sessions
+  app.use("/api/v1/sim", actionsRouter);                 // actions + ledger (extends sim)
+  app.use("/api/v1/demo", demoRouter);                   // demo mode seeding
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {

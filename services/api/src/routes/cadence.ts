@@ -22,6 +22,7 @@ import { runAgentExecution } from "../agent-runtime/execution/engine.js";
 import { buildDailyPulse, buildWeeklyBrief } from "../workers/cadence.js";
 import { recordCadenceRun, getCadenceState } from "../workers/scheduler.js";
 import type { ArtifactsForExecution } from "../agent-runtime/execution/types.js";
+import { normalizeAutonomyPolicy, normalizeAgentBlueprint, normalizeObjectiveConfig } from "../lib/artifact-normalize.js";
 
 export const cadenceRouter = Router();
 cadenceRouter.use(requireContext);
@@ -58,10 +59,10 @@ cadenceRouter.post("/run", requireRole(["admin", "operator"]), (req: Request, re
   try {
     runResult = runAgentExecution({
       business_profile: bp.payload as Record<string, unknown>,
-      objective_config: oc.payload as Record<string, unknown>,
-      autonomy_policy: ap.payload as ArtifactsForExecution["autonomy_policy"],
+      objective_config: normalizeObjectiveConfig(oc.payload as Record<string, unknown>),
+      autonomy_policy:  normalizeAutonomyPolicy(ap.payload as Record<string, unknown>),
       cadence_protocol: cp.payload as Record<string, unknown>,
-      agent_blueprint: ab.payload as ArtifactsForExecution["agent_blueprint"]
+      agent_blueprint:  normalizeAgentBlueprint(ab.payload as Record<string, unknown>)
     });
   } catch (err) {
     res.status(500).json({ error: "execution failed", detail: err instanceof Error ? err.message : "unknown" });

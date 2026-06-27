@@ -15,6 +15,8 @@ export async function mockCommon(page: Page) {
   await page.route("/api/v1/settings", (r: Route) => r.fulfill({ json: SETTINGS }));
   await page.route("/api/v1/approvals?status=pending&limit=50", (r: Route) => r.fulfill({ json: { approvals: [] } }));
   await page.route("/api/v1/level4/actions?status=pending&limit=50", (r: Route) => r.fulfill({ json: { actions: [] } }));
+  // Board-ready check used by dashboard and nav-shell
+  await page.route("/api/v1/artifacts/business_profile/latest", (r: Route) => r.fulfill({ json: { artifact_id: "bp-1", artifact_type: "business_profile", version: 1 } }));
 }
 
 export async function mockMethod(page: Page, url: string, method: string, json: unknown) {

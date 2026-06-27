@@ -100,3 +100,145 @@ workspaceRouter.get("/today", (req: Request, res: Response) => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Kill-switch routes
+// ---------------------------------------------------------------------------
+
+type KillSwitchRecord = {
+  enabled: boolean;
+  reason?: string;
+  set_by: string;
+  set_at: string;
+};
+
+/** PATCH /kill-switch — enable or disable the workspace kill switch */
+workspaceRouter.patch(
+  "/kill-switch",
+  requireRole(["admin", "operator"]),
+  (req: Request, res: Response) => {
+    const ctx = req.ctx!;
+    const { enabled, reason } = req.body as { enabled: boolean; reason?: string };
+    const now = new Date().toISOString();
+
+    const record: KillSwitchRecord = {
+      enabled: Boolean(enabled),
+      reason: reason?.trim(),
+      set_by: ctx.userId,
+      set_at: now
+    };
+    writeJsonAtomic(`kill-switch/${ctx.workspaceId}`, record);
+
+    res.status(200).json(record);
+  }
+);
+
+/** GET /kill-switch — read current kill switch state */
+workspaceRouter.get("/kill-switch", (req: Request, res: Response) => {
+  const { workspaceId } = req.ctx!;
+  const record = readJson<KillSwitchRecord | { enabled: false }>(
+    `kill-switch/${workspaceId}`,
+    { enabled: false }
+  );
+  res.status(200).json(record);
+});
+
+// ---------------------------------------------------------------------------
+// Connector pause/resume routes
+// ---------------------------------------------------------------------------
+
+const KNOWN_CONNECTORS = ["slack", "crew-bridge", "email", "calendar", "crm"] as const;
+type ConnectorName = typeof KNOWN_CONNECTORS[number];
+
+type ConnectorPauseEntry = {
+  connector: ConnectorName;
+  paused: true;
+  reason?: string;
+  paused_at: string;
+  paused_by: string;
+};
+
+type ConnectorPauses = ConnectorPauseEntry[];
+
+/** POST /connectors/:connector/pause — pause a connector */
+workspaceRouter.post(
+  "/connectors/:connector/pause",
+  requireRole(["admin", "operator"]),
+  (req: Request, res: Response) => {
+    const ctx = req.ctx!;
+    const connector = req.params.connector as ConnectorName;
+    const { reason } = req.body as { reason?: string };
+
+    if (!(KNOWN_CONNECTORS as readonly string[]).includes(connector)) {
+      res.status(400).json({ error: "unknown connector", known: KNOWN_CONNECTORS });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const pauses = readJson<ConnectorPauses>(`connector-pauses/${ctx.workspaceId}`, []);
+    const entry: ConnectorPauseEntry = {
+      connector,
+      paused: true,
+      reason: reason?.trim(),
+      paused_at: now,
+      paused_by: ctx.userId
+    };
+
+    const filtered = pauses.filter((p) => p.connector !== connector);
+    filtered.push(entry);
+    writeJsonAtomic(`connector-pauses/${ctx.workspaceId}`, filtered);
+
+    res.status(200).json(entry);
+  }
+);
+
+/** POST /connectors/:connector/resume — resume a connector */
+workspaceRouter.post(
+  "/connectors/:connector/resume",
+  requireRole(["admin", "operator"]),
+  (req: Request, res: Response) => {
+    const ctx = req.ctx!;
+    const connector = req.params.connector as ConnectorName;
+
+    if (!(KNOWN_CONNECTORS as readonly string[]).includes(connector)) {
+      res.status(400).json({ error: "unknown connector", known: KNOWN_CONNECTORS });
+      return;
+    }
+
+    const pauses = readJson<ConnectorPauses>(`connector-pauses/${ctx.workspaceId}`, []);
+    const filtered = pauses.filter((p) => p.connector !== connector);
+    writeJsonAtomic(`connector-pauses/${ctx.workspaceId}`, filtered);
+
+    res.status(200).json({ connector, paused: false });
+  }
+);
+
+/** GET /connectors — list all connectors with pause state */
+workspaceRouter.get("/connectors", (req: Request, res: Response) => {
+  const { workspaceId } = req.ctx!;
+  const pauses = readJson<ConnectorPauses>(`connector-pauses/${workspaceId}`, []);
+  const pauseMap = new Map(pauses.map((p) => [p.connector, p]));
+
+  const connectors = KNOWN_CONNECTORS.map((name) => {
+    const entry = pauseMap.get(name);
+    return entry
+      ? { name, paused: true, paused_at: entry.paused_at, reason: entry.reason }
+      : { name, paused: false };
+  });
+
+  res.status(200).json({ connectors });
+});
+
+// ---------------------------------------------------------------------------
+// Exported helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if the workspace kill switch is currently enabled.
+ * Safe to call synchronously from anywhere in the API (reads from
+ * the file-backed persistence layer).
+ */
+export function isWorkspaceKillSwitchEnabled(workspaceId: string): boolean {
+  const record = readJson<{ enabled?: boolean }>(`kill-switch/${workspaceId}`, {});
+  return record.enabled ?? false;
+}

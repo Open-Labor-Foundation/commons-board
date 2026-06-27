@@ -61,7 +61,11 @@ export type GovernanceEventType =
   | "board_roadmap_created"
   | "board_chat_completed"
   | "launch_session_started"
-  | "launch_artifacts_written";
+  | "launch_artifacts_written"
+  | "meeting_created"
+  | "meeting_closed"
+  | "meeting_respond_completed"
+  | "exec_session_created";
 
 /** A governance event. Signed and chained when persisted. */
 export interface GovernanceEvent {

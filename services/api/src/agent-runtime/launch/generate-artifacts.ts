@@ -107,6 +107,168 @@ export function generateLaunchArtifacts(answers: LaunchAnswers): LaunchArtifacts
   };
 }
 
+type AutonomyMode = "advisor" | "orchestrator" | "autopilot";
+
+export type ExecutionArtifactSet = {
+  business_profile: Record<string, unknown>;
+  objective_config: Record<string, unknown>;
+  autonomy_policy: Record<string, unknown>;
+  cadence_protocol: Record<string, unknown>;
+};
+
+export function mapLaunchToExecutionArtifacts(
+  orgId: string,
+  artifacts: LaunchArtifacts,
+  answers: LaunchAnswers
+): ExecutionArtifactSet {
+  const l1 = answers.L1 ?? {};
+  const l2 = answers.L2 ?? {};
+  const l5 = answers.L5 ?? {};
+  const l6 = answers.L6 ?? {};
+  const vp = artifacts.venture_profile as {
+    chosen_market_problem?: string;
+    target_icp?: string;
+    offer_pricing_hypothesis?: string;
+    differentiation?: string;
+    preferred_sales_motion?: string;
+  };
+  const lp = artifacts.launch_plan as {
+    success_metrics?: string[];
+    milestones_14_30_60_90?: Record<string, string[]>;
+    experiments_backlog?: string[];
+  };
+  const fp = artifacts.financial_policy as {
+    categories?: { forbidden?: string[] };
+    approvals?: { required_over_amount?: number };
+  };
+
+  const riskToMode: Record<string, AutonomyMode> = {
+    low: "advisor",
+    med: "orchestrator",
+    high: "autopilot",
+  };
+  const autonomyMode: AutonomyMode = riskToMode[l1.risk_appetite ?? "low"] ?? "advisor";
+
+  const industries = l2.industries_of_interest ?? ["services"];
+  const industry = industries[0] ?? "services";
+
+  const externalSystems = [
+    l5.email_provider,
+    l5.crm_choice,
+    l5.billing_choice,
+    l5.landing_stack,
+    l5.domain_provider,
+  ].filter((s): s is string => typeof s === "string" && s !== "none" && s.length > 0);
+
+  const business_profile: Record<string, unknown> = {
+    org_id: orgId,
+    org_name: vp.target_icp ? `${industry} Venture` : "New Venture",
+    governance_mode: "business",
+    description: [vp.chosen_market_problem, vp.offer_pricing_hypothesis]
+      .filter(Boolean)
+      .join(" — ") || "Early-stage venture configured via board setup",
+    industry,
+    primary_domain: vp.preferred_sales_motion ?? "services",
+    operating_since: null,
+    location: { primary: "Remote", regions: [] },
+    size: { headcount: 1, member_count: null },
+    external_systems: externalSystems,
+    created_at: new Date().toISOString(),
+    schema_version: "1.0",
+  };
+
+  type ObjType = "revenue" | "mission" | "growth" | "sustainability" | "service" | "other";
+  type Objective = { id: string; description: string; type: ObjType; priority: number; success_criteria: string[]; target_date: string | null };
+  const milestones = (lp.milestones_14_30_60_90 ?? {}) as Record<string, string[]>;
+  const objectives: Objective[] = Object.entries(milestones).map(([period, items], i) => ({
+    id: `obj-${period}`,
+    description: `${period.replace("_", " ")} milestone: ${(items as string[])[0] ?? ""}`,
+    type: "growth",
+    priority: i + 1,
+    success_criteria: items as string[],
+    target_date: null,
+  }));
+  if (objectives.length === 0) {
+    objectives.push({
+      id: "obj-default",
+      description: "Validate product-market fit and achieve first paying customer",
+      type: "revenue",
+      priority: 1,
+      success_criteria: ["First qualified conversation", "First paying customer"],
+      target_date: null,
+    });
+  }
+
+  const metrics = (lp.success_metrics ?? ["qualified_conversations_per_week", "weekly_revenue"]) as string[];
+  const kpis = metrics.map((name, i) => ({
+    id: `kpi-${i + 1}`,
+    name: name.replace(/_/g, " "),
+    unit: name.includes("revenue") || name.includes("spend") ? "USD" : "count",
+    current_value: null,
+    target_value: null,
+    reporting_cadence: "weekly" as const,
+  }));
+
+  const objective_config: Record<string, unknown> = {
+    org_id: orgId,
+    primary_objectives: objectives,
+    kpis,
+    constraints: fp.categories?.forbidden ?? [],
+    schema_version: "1.0",
+  };
+
+  const spendLimit = autonomyMode === "advisor" ? 0 : autonomyMode === "orchestrator" ? 50 : 200;
+
+  const autonomy_policy: Record<string, unknown> = {
+    org_id: orgId,
+    autonomy_mode: autonomyMode,
+    execution_mode: "sim",
+    approval_thresholds: {
+      financial_spend_auto_limit: spendLimit,
+      outreach_auto_limit: autonomyMode === "autopilot" ? 50 : 10,
+      content_publish_requires_approval: autonomyMode !== "autopilot",
+      external_write_requires_approval: autonomyMode === "advisor",
+    },
+    disabled_capabilities: fp.categories?.forbidden ?? [],
+    hr_agent_enabled: false,
+    per_person_analytics_enabled: false,
+    slack_dm_enabled: false,
+    slack_channel_whitelist: [],
+    risk_escalation_threshold: autonomyMode === "advisor" ? 30 : autonomyMode === "orchestrator" ? 60 : 80,
+    blast_radius_escalation_threshold: autonomyMode === "advisor" ? "low" : "medium",
+    schema_version: "1.0",
+  };
+
+  const cadence_protocol: Record<string, unknown> = {
+    org_id: orgId,
+    daily: {
+      enabled: true,
+      run_at: "07:00",
+      timezone: "UTC",
+      delivery: ["crew-bridge"],
+      output: "pulse",
+    },
+    weekly: {
+      enabled: true,
+      run_at: "09:00",
+      timezone: "UTC",
+      delivery: ["crew-bridge"],
+      run_on: "monday",
+      output: "brief",
+      chairs_included: ["all"],
+    },
+    monthly: {
+      enabled: false,
+      run_on_day: 1,
+      output: "review",
+      delivery: [],
+    },
+    schema_version: "1.0",
+  };
+
+  return { business_profile, objective_config, autonomy_policy, cadence_protocol };
+}
+
 export function validateLaunchArtifacts(artifacts: LaunchArtifacts): { ok: true } | { ok: false; errors: string[] } {
   const errors: string[] = [];
 

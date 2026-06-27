@@ -26,6 +26,7 @@ import { runAgentExecution } from "../agent-runtime/execution/engine.js";
 import { buildLoopCheckpoints } from "../lib/operational-loop.js";
 import { classifyAction } from "../lib/verification-policy.js";
 import type { ArtifactsForExecution, GovernedAction } from "../agent-runtime/execution/types.js";
+import { normalizeAutonomyPolicy, normalizeAgentBlueprint, normalizeObjectiveConfig } from "../lib/artifact-normalize.js";
 
 export const executionRouter = Router();
 executionRouter.use(requireContext);
@@ -79,14 +80,26 @@ function loadArtifacts(workspaceId: string): { artifacts: ArtifactsForExecution 
 
   const financialPolicy = getArtifact(workspaceId, "financial_policy");
 
+  const ap = autonomyPolicy!.payload as Record<string, unknown>;
+  const ab = agentBlueprint!.payload as Record<string, unknown>;
+  const oc = objectiveConfig!.payload as Record<string, unknown>;
+
+  // Normalize objective_config: CB stores primary_objectives[] while the engine reads
+  // primary_objective (string). Flatten to the first entry's description as a fallback.
+  const primaryObjs = oc.primary_objectives as Array<Record<string, unknown>> | undefined;
+  const normalizedOC: Record<string, unknown> = {
+    ...oc,
+    primary_objective: oc.primary_objective ?? primaryObjs?.[0]?.description ?? "operational_stability",
+  };
+
   return {
     missing: [],
     artifacts: {
       business_profile: businessProfile!.payload as Record<string, unknown>,
-      objective_config: objectiveConfig!.payload as Record<string, unknown>,
-      autonomy_policy: autonomyPolicy!.payload as ArtifactsForExecution["autonomy_policy"],
+      objective_config: normalizedOC,
+      autonomy_policy:  normalizeAutonomyPolicy(ap),
       cadence_protocol: cadenceProtocol!.payload as Record<string, unknown>,
-      agent_blueprint: agentBlueprint!.payload as ArtifactsForExecution["agent_blueprint"],
+      agent_blueprint:  normalizeAgentBlueprint(ab),
       ...(financialPolicy ? { financial_policy: financialPolicy.payload as ArtifactsForExecution["financial_policy"] } : {})
     }
   };

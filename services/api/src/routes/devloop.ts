@@ -20,6 +20,7 @@
  *   POST /api/v1/devloop/project/run-next                 — project mode run
  */
 import { Router, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -269,6 +270,75 @@ function pathWithinRoot(path: string, root: string): boolean {
   if (absolutePath === absoluteRoot) return true;
   return absolutePath.startsWith(`${absoluteRoot}/`);
 }
+
+// ---------------------------------------------------------------------------
+// Task CRUD — simple JSON-file backed task list
+// ---------------------------------------------------------------------------
+
+type DevTask = {
+  task_id: string;
+  workspace_id: string;
+  title: string;
+  type: string;
+  domain: string;
+  status: string;
+  priority: number;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+const tasksKey = (w: string) => `devloop-tasks/${w}`;
+
+/** GET /api/v1/devloop/tasks */
+devloopRouter.get("/tasks", (req: Request, res: Response) => {
+  const { workspaceId } = req.ctx!;
+  const tasks = readJson<DevTask[]>(tasksKey(workspaceId), []);
+  const active = tasks.filter(t => !["completed", "done", "cancelled"].includes(t.status)).length;
+  const completed = tasks.filter(t => ["completed", "done"].includes(t.status)).length;
+  res.status(200).json({ tasks: tasks.slice().reverse(), total: tasks.length, active, completed });
+});
+
+/** POST /api/v1/devloop/tasks */
+devloopRouter.post("/tasks", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+  const { workspaceId } = req.ctx!;
+  const body = req.body as { title?: string; type?: string; domain?: string; priority?: number; notes?: string };
+  if (!body.title?.trim()) {
+    res.status(400).json({ error: "title is required" });
+    return;
+  }
+  const now = new Date().toISOString();
+  const task: DevTask = {
+    task_id: randomUUID(),
+    workspace_id: workspaceId,
+    title: body.title.trim(),
+    type: body.type ?? "feature",
+    domain: body.domain ?? "rnd",
+    status: "open",
+    priority: typeof body.priority === "number" ? body.priority : 50,
+    notes: body.notes,
+    created_at: now,
+    updated_at: now,
+  };
+  const tasks = readJson<DevTask[]>(tasksKey(workspaceId), []);
+  writeJsonAtomic(tasksKey(workspaceId), [...tasks, task]);
+  res.status(201).json({ task });
+});
+
+/** PATCH /api/v1/devloop/tasks/:id */
+devloopRouter.patch("/tasks/:id", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+  const { workspaceId } = req.ctx!;
+  const tasks = readJson<DevTask[]>(tasksKey(workspaceId), []);
+  const idx = tasks.findIndex(t => t.task_id === req.params.id);
+  if (idx < 0) {
+    res.status(404).json({ error: "task not found" });
+    return;
+  }
+  const body = req.body as Partial<Pick<DevTask, "status" | "priority" | "notes" | "title">>;
+  tasks[idx] = { ...tasks[idx], ...body, updated_at: new Date().toISOString() };
+  writeJsonAtomic(tasksKey(workspaceId), tasks);
+  res.status(200).json({ task: tasks[idx] });
+});
 
 /** GET /api/v1/devloop/contracts */
 devloopRouter.get("/contracts", (_req: Request, res: Response) => {

@@ -11,7 +11,7 @@ test.describe("Onboarding page", () => {
 
   test("shows Onboarding Interview heading", async ({ page }) => {
     await page.goto("/onboarding");
-    await expect(page.getByText("Onboarding Interview")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Board Interview" })).toBeVisible();
   });
 
   test("shows initial system prompt message after start", async ({ page }) => {
@@ -44,7 +44,7 @@ test.describe("Onboarding page", () => {
   test("complete state shows Generate artifacts button", async ({ page }) => {
     await page.route("/api/v1/interview/start", r => r.fulfill({ json: { ...SESSION, complete: true, prompt: "All done!" } }));
     await page.goto("/onboarding");
-    await expect(page.getByRole("button", { name: "Generate artifacts" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Generate Board/ })).toBeVisible();
   });
 
   test("confirming sends POST to /confirm and shows redirect message", async ({ page }) => {
@@ -52,9 +52,9 @@ test.describe("Onboarding page", () => {
     await page.route("/api/v1/interview/start", r => r.fulfill({ json: { ...SESSION, complete: true } }));
     await page.route("/api/v1/interview/sess-1/confirm", async r => { confirmed = true; await r.fulfill({ json: { artifacts: [] } }); });
     await page.goto("/onboarding");
-    await page.getByRole("button", { name: "Generate artifacts" }).click();
+    await page.getByRole("button", { name: /Generate Board/ }).click();
     expect(confirmed).toBe(true);
-    await expect(page.getByText("Artifacts generated.")).toBeVisible();
+    await expect(page.getByText("Board artifacts generated")).toBeVisible();
   });
 
   test("failed start shows error message", async ({ page }) => {

@@ -10,6 +10,7 @@ const DASH_ROUTES = async (page: import("@playwright/test").Page) => {
   await page.route("/api/v1/treasury/balance", r => r.fulfill({ json: { totalIncome: 10000, availableForDistribution: 5000, currency: "USD" } }));
   await page.route("/api/v1/billing/metrics", r => r.fulfill({ json: { mrr: 1500, arr: 18000, activeCustomers: 12, currency: "USD" } }));
   await page.route("/api/v1/level4/dashboard", r => r.fulfill({ json: { metrics: { actions: { total: 5, pending: 1 }, outreach: { prospects: 3 } } } }));
+  await page.route("/api/v1/cadence/status", r => r.fulfill({ json: { state: { last_daily: new Date(Date.now() - 3600000).toISOString() } } }));
 };
 
 test.describe("Dashboard", () => {

@@ -5,20 +5,20 @@ import { apiFetch, apiPost, relativeTime, humanize, statusColor } from "../../li
 
 type ExecutionRun = {
   run_id: string;
-  title?: string;
-  action_type?: string;
-  domain?: string;
+  initiated_by: string;
+  sim_mode: boolean;
   status: string;
-  result?: string;
-  error?: string;
-  started_at: string;
+  action_count: number;
+  blocked_count: number;
+  approval_count: number;
+  auto_count: number;
+  initiated_at: string;
   completed_at?: string;
 };
 
 type ExecutionState = {
-  active_runs?: number;
-  total_runs?: number;
-  recent_runs?: ExecutionRun[];
+  runs?: ExecutionRun[];
+  total?: number;
 };
 
 export default function ExecutionPage() {
@@ -33,7 +33,7 @@ export default function ExecutionPage() {
   const ACTION_TYPES = ["task", "workflow", "batch", "scheduled", "triggered"];
 
   const load = useCallback(async () => {
-    const data = await apiFetch<ExecutionState>("/api/v1/execution");
+    const data = await apiFetch<ExecutionState>("/api/v1/execution/runs");
     setState(data);
     setLoading(false);
   }, []);
@@ -60,7 +60,7 @@ export default function ExecutionPage() {
     load();
   }
 
-  const runs = state?.recent_runs ?? [];
+  const runs = state?.runs ?? [];
   if (loading) return <div style={{ padding: 32, color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>;
 
   return (
@@ -69,8 +69,8 @@ export default function ExecutionPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
         {[
-          { label: "Active runs", value: String(state?.active_runs ?? 0) },
-          { label: "Total runs", value: String(state?.total_runs ?? 0) },
+          { label: "Total runs", value: String(state?.total ?? runs.length) },
+          { label: "In sim mode", value: String(runs.filter(r => r.sim_mode).length) },
         ].map(({ label, value }) => (
           <div key={label} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "14px 16px" }}>
             <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</p>
@@ -121,9 +121,9 @@ export default function ExecutionPage() {
           <div key={r.run_id} style={{ borderBottom: i < runs.length - 1 ? "1px solid var(--border)" : "none" }}>
             <div onClick={() => setExpandedId(prev => prev === r.run_id ? null : r.run_id)} style={{ display: "flex", gap: 12, padding: "12px 16px", cursor: "pointer", alignItems: "center" }}>
               <div style={{ flex: 1 }}>
-                <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{r.title ?? humanize(r.action_type ?? "run")}</p>
+                <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{r.sim_mode ? "[sim] " : ""}Run by {r.initiated_by}</p>
                 <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "3px 0 0" }}>
-                  {r.domain && <>{r.domain} · </>}{relativeTime(r.started_at)}{r.completed_at ? ` → ${relativeTime(r.completed_at)}` : ""}
+                  {relativeTime(r.initiated_at)}{r.completed_at ? ` → ${relativeTime(r.completed_at)}` : ""} · {r.action_count} actions · {r.blocked_count} blocked
                 </p>
               </div>
               <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: statusColor(r.status) + "18", color: statusColor(r.status), fontWeight: 600 }}>{r.status}</span>
@@ -132,8 +132,7 @@ export default function ExecutionPage() {
               <div style={{ padding: "0 16px 12px" }}>
                 <div style={{ background: "var(--surface-overlay)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "10px 14px", fontSize: 12, fontFamily: "monospace" }}>
                   <p style={{ margin: 0 }}>run_id: {r.run_id}</p>
-                  {r.result && <p style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>result: {r.result}</p>}
-                  {r.error && <p style={{ margin: "4px 0 0", color: "var(--error)" }}>error: {r.error}</p>}
+                  <p style={{ margin: "4px 0 0" }}>actions: {r.action_count} total · {r.auto_count} auto · {r.approval_count} approved · {r.blocked_count} blocked</p>
                 </div>
               </div>
             )}

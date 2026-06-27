@@ -3,21 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, relativeTime, humanize, statusColor } from "../../lib/api";
 
-type BiData = {
-  revenue?: number;
-  mrr?: number;
-  customers?: number;
-  churn_rate?: number;
-  metrics?: Array<{ name: string; value: number | string; unit?: string; trend?: "up" | "down" | "flat" }>;
+type BiHealth = {
+  overall_score?: number;
+  trend?: "up" | "down" | "flat";
+  domain_scores?: Record<string, number>;
+  capability_count?: number;
+  dashboard_count?: number;
+  domain_count?: number;
 };
 
-type ObsData = {
-  api_latency_p50?: number;
-  api_latency_p99?: number;
-  error_rate?: number;
-  uptime?: number;
-  active_agents?: number;
-  health?: Record<string, string>;
+type ObsRuns = {
+  runs?: Array<{ run_id: string; status: string; initiated_at: string; action_count: number }>;
+  total?: number;
+};
+
+type ObsCadence = {
+  last_daily_at?: string;
+  last_weekly_at?: string;
+  last_monthly_at?: string;
 };
 
 type OrgEvent = {
@@ -30,20 +33,23 @@ type OrgEvent = {
 };
 
 export default function BiPage() {
-  const [bi, setBi] = useState<BiData | null>(null);
-  const [obs, setObs] = useState<ObsData | null>(null);
+  const [bi, setBi] = useState<BiHealth | null>(null);
+  const [obsRuns, setObsRuns] = useState<ObsRuns | null>(null);
+  const [obsCadence, setObsCadence] = useState<ObsCadence | null>(null);
   const [events, setEvents] = useState<OrgEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"bi" | "obs" | "events">("bi");
 
   const load = useCallback(async () => {
-    const [b, o, e] = await Promise.all([
-      apiFetch<BiData>("/api/v1/bi"),
-      apiFetch<ObsData>("/api/v1/obs"),
+    const [b, r, c, e] = await Promise.all([
+      apiFetch<BiHealth>("/api/v1/bi/health"),
+      apiFetch<ObsRuns>("/api/v1/obs/execution-runs"),
+      apiFetch<ObsCadence>("/api/v1/obs/last-cadence"),
       apiFetch<{ events: OrgEvent[] }>("/api/v1/events"),
     ]);
     setBi(b);
-    setObs(o);
+    setObsRuns(r);
+    setObsCadence(c);
     setEvents(e?.events ?? []);
     setLoading(false);
   }, []);
@@ -84,43 +90,41 @@ export default function BiPage() {
 
       {tab === "bi" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-            <Stat label="MRR" value={bi?.mrr} unit="$" />
-            <Stat label="ARR" value={bi?.mrr != null ? bi.mrr * 12 : undefined} unit="$" />
-            <Stat label="Customers" value={bi?.customers} />
-            <Stat label="Churn rate" value={bi?.churn_rate} unit="%" trend="down" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            <Stat label="Org health score" value={bi?.overall_score} trend={bi?.trend} />
+            <Stat label="Capabilities" value={bi?.capability_count} />
+            <Stat label="Domains tracked" value={bi?.domain_count} />
           </div>
-          {bi?.metrics && bi.metrics.length > 0 && (
+          {bi?.domain_scores && Object.keys(bi.domain_scores).length > 0 && (
             <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontWeight: 600, fontSize: 13 }}>Metrics</div>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontWeight: 600, fontSize: 13 }}>Domain Scores</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0 }}>
-                {bi.metrics.map((m, i) => (
-                  <div key={m.name} style={{ padding: "12px 16px", borderRight: (i + 1) % 3 !== 0 ? "1px solid var(--border)" : "none", borderBottom: i < bi.metrics!.length - 3 ? "1px solid var(--border)" : "none" }}>
-                    <Stat label={humanize(m.name)} value={m.value} unit={m.unit} trend={m.trend} />
+                {Object.entries(bi.domain_scores).map(([domain, score], i, arr) => (
+                  <div key={domain} style={{ padding: "12px 16px", borderRight: (i + 1) % 3 !== 0 ? "1px solid var(--border)" : "none", borderBottom: i < arr.length - 3 ? "1px solid var(--border)" : "none" }}>
+                    <Stat label={humanize(domain)} value={score} />
                   </div>
                 ))}
               </div>
             </div>
           )}
+          {!bi && <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>No BI health data yet. Run a cadence cycle to generate domain scores.</p>}
         </div>
       )}
 
       {tab === "obs" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
-            <Stat label="P50 latency" value={obs?.api_latency_p50} unit="ms" />
-            <Stat label="P99 latency" value={obs?.api_latency_p99} unit="ms" />
-            <Stat label="Error rate" value={obs?.error_rate} unit="%" trend="down" />
-            <Stat label="Uptime" value={obs?.uptime} unit="%" trend="up" />
-            <Stat label="Active agents" value={obs?.active_agents} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            <Stat label="Total runs" value={obsRuns?.total ?? 0} />
+            <Stat label="Last daily cadence" value={obsCadence?.last_daily_at ? relativeTime(obsCadence.last_daily_at) : "—"} />
+            <Stat label="Last weekly cadence" value={obsCadence?.last_weekly_at ? relativeTime(obsCadence.last_weekly_at) : "—"} />
           </div>
-          {obs?.health && Object.keys(obs.health).length > 0 && (
+          {obsRuns?.runs && obsRuns.runs.length > 0 && (
             <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontWeight: 600, fontSize: 13 }}>Component Health</div>
-              {Object.entries(obs.health).map(([name, status], i, arr) => (
-                <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none" }}>
-                  <span style={{ fontSize: 13 }}>{humanize(name)}</span>
-                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: statusColor(status) + "18", color: statusColor(status), fontWeight: 600 }}>{status}</span>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontWeight: 600, fontSize: 13 }}>Recent Execution Runs</div>
+              {obsRuns.runs.slice(0, 10).map((r, i, arr) => (
+                <div key={r.run_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none" }}>
+                  <span style={{ fontSize: 13 }}>{relativeTime(r.initiated_at)} · {r.action_count} actions</span>
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: statusColor(r.status) + "18", color: statusColor(r.status), fontWeight: 600 }}>{r.status}</span>
                 </div>
               ))}
             </div>

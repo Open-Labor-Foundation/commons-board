@@ -47,7 +47,7 @@ export default function AutonomousPage() {
 
   const load = useCallback(async () => {
     const [a, e] = await Promise.all([
-      apiFetch<{ cycles: CycleRun[] }>("/api/v1/autonomous"),
+      apiFetch<{ cycles: CycleRun[] }>("/api/v1/autonomous/cycles"),
       apiFetch<{ experiments: Experiment[] }>("/api/v1/autonomous/experiments"),
     ]);
     setCycles(a?.cycles ?? []);

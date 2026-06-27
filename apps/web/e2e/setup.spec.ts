@@ -10,16 +10,26 @@ test.describe("Setup flow", () => {
     await expect(page).toHaveURL(/\/setup/);
   });
 
-  test("root redirects to /dashboard when org_name is configured", async ({ page }) => {
+  test("root redirects to /dashboard when org_name is configured and board ready", async ({ page }) => {
     await page.route("/api/v1/settings", r => r.fulfill({ json: SETTINGS }));
+    await page.route("/api/v1/artifacts/business_profile/latest", r => r.fulfill({ json: { artifact_id: "bp-1" } }));
     await page.route("/api/v1/approvals**", r => r.fulfill({ json: { approvals: [] } }));
     await page.route("/api/v1/level4/actions**", r => r.fulfill({ json: { actions: [] } }));
     await page.route("/api/v1/decision-log**", r => r.fulfill({ json: { entries: [] } }));
     await page.route("/api/v1/treasury/balance", r => r.fulfill({ json: { totalIncome: 0, availableForDistribution: 0, currency: "USD" } }));
     await page.route("/api/v1/billing/metrics", r => r.fulfill({ json: { mrr: 0, arr: 0, activeCustomers: 0, currency: "USD" } }));
     await page.route("/api/v1/level4/dashboard", r => r.fulfill({ json: { metrics: { actions: { total: 0, pending: 0 }, outreach: { prospects: 0 } } } }));
+    await page.route("/api/v1/cadence/status", r => r.fulfill({ json: { state: {} } }));
     await page.goto("/");
     await expect(page).toHaveURL(/\/dashboard/);
+  });
+
+  test("root redirects to /onboarding when org_name is configured but no board", async ({ page }) => {
+    await page.route("/api/v1/settings", r => r.fulfill({ json: SETTINGS }));
+    await page.route("/api/v1/artifacts/business_profile/latest", r => r.fulfill({ status: 404, json: { error: "not found" } }));
+    await page.route("/api/v1/interview/start", r => r.fulfill({ json: { session_id: "s-1", prompt: "Tell me about your org." } }));
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/onboarding/);
   });
 
   test("setup page shows workspace name step by default", async ({ page }) => {
@@ -81,6 +91,8 @@ test.describe("Setup flow", () => {
     await page.route("/api/v1/treasury/balance", r => r.fulfill({ json: { totalIncome: 0, availableForDistribution: 0, currency: "USD" } }));
     await page.route("/api/v1/billing/metrics", r => r.fulfill({ json: { mrr: 0, arr: 0, activeCustomers: 0, currency: "USD" } }));
     await page.route("/api/v1/level4/dashboard", r => r.fulfill({ json: { metrics: { actions: { total: 0, pending: 0 }, outreach: { prospects: 0 } } } }));
+    await page.route("/api/v1/artifacts/business_profile/latest", r => r.fulfill({ json: { artifact_id: "bp-1" } }));
+    await page.route("/api/v1/cadence/status", r => r.fulfill({ json: { state: {} } }));
 
     await page.goto("/setup");
     await page.getByPlaceholder("e.g. Acme Workers Cooperative").fill("My Coop");

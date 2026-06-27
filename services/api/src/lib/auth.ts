@@ -74,6 +74,14 @@ export function requireContext(req: Request, res: Response, next: NextFunction):
     }
 
     req.ctx = { userId, workspaceId, role: role as Role };
+
+    // Cross-tenant guard: if caller explicitly names a target workspace, it must match.
+    const targetWorkspaceId = req.header("x-target-workspace-id");
+    if (targetWorkspaceId && targetWorkspaceId !== workspaceId) {
+      res.status(403).json({ error: "cross-tenant access denied", target: targetWorkspaceId, context: workspaceId });
+      return;
+    }
+
     next();
   })().catch((error) => {
     res.status(401).json({ error: error instanceof Error ? error.message : "auth failure" });
