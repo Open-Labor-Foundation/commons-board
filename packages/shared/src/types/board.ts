@@ -1,0 +1,130 @@
+/**
+ * Board orchestration types: domains, requests, roadmaps, and session state.
+ *
+ * BoardDomain is the canonical set of chair types in commons-board.
+ * Mother-board's "cio" domain is not carried — IT strategy maps to "it" or "strategy".
+ */
+
+export type BoardDomain =
+  | "finance"
+  | "ops"
+  | "growth"
+  | "legal"
+  | "hr"
+  | "product"
+  | "it"
+  | "security"
+  | "strategy"
+  | "rnd"
+  | "sales";
+
+export type BoardRequestStatus =
+  | "submitted"
+  | "triaged"
+  | "planned"
+  | "approved"
+  | "executing"
+  | "blocked"
+  | "completed"
+  | "rejected";
+
+export type BoardRequestPriority = "low" | "medium" | "high" | "critical";
+
+export interface BoardRequestRecord {
+  id: string;
+  org_id: string;
+  title: string;
+  request: string;
+  requested_by: string;
+  target_chair_id: string;
+  target_domain: BoardDomain;
+  routing_mode: "explicit" | "auto";
+  status: BoardRequestStatus;
+  priority: BoardRequestPriority;
+  constraints: string[];
+  deadline?: string;
+  success_criteria: string[];
+  dependency_ids: string[];
+  approval_required: boolean;
+  risk_level: "low" | "medium" | "high";
+  latest_roadmap_version?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BoardRoadmapPhase {
+  name: string;
+  duration_days: number;
+  objective: string;
+  milestones: string[];
+  dependencies: string[];
+  owners: string[];
+}
+
+export interface BoardRoadmapRecord {
+  id: string;
+  org_id: string;
+  request_id: string;
+  version: number;
+  domain: BoardDomain;
+  owner_chair_id: string;
+  summary: string;
+  assumptions: string[];
+  risks: string[];
+  mitigation_plan: string[];
+  resource_requests: string[];
+  phases: BoardRoadmapPhase[];
+  created_by: string;
+  created_at: string;
+}
+
+export interface BoardActiveBoardContext {
+  workflow_key?: string;
+  operation_kind?: string;
+  deliverable_kind?: string;
+  chair_id?: string;
+  chair_domain?: BoardDomain;
+  committee_ids: string[];
+  committee_domains: BoardDomain[];
+  actions: Array<{ action_id: string }>;
+  approvals: Array<{ approval_id: string }>;
+}
+
+export interface BoardSessionState {
+  active_context: BoardActiveBoardContext;
+  strategic_context: BoardActiveBoardContext;
+  active_workflow_key?: string;
+  active_operation_kind?: string;
+  active_deliverable_kind?: string;
+  active_chair_id?: string;
+  active_chair_domain?: BoardDomain;
+  active_committee_ids: string[];
+  active_committee_domains: BoardDomain[];
+  active_action_ids: string[];
+  active_approval_ids: string[];
+  last_response_mode?: string;
+  last_interpretation?: Partial<BoardInterpretationSpec>;
+}
+
+export type BoardConversationMode = "chair" | "board" | "committee";
+export type BoardResponseMode = "prose" | "memo" | "checklist" | "json";
+export type BoardTaskOperationKind =
+  | "analysis"
+  | "planning"
+  | "execution"
+  | "review"
+  | "recommendation"
+  | "approval_request";
+
+export interface BoardInterpretationSpec {
+  workflow_key?: string;
+  conversation_mode: BoardConversationMode;
+  response_mode: BoardResponseMode;
+  operation_kind: BoardTaskOperationKind;
+  deliverable_kind?: string;
+  target_chair_id?: string;
+  target_chair_domain?: BoardDomain;
+  committee_ids: string[];
+  committee_domains: BoardDomain[];
+  task_spec: Record<string, unknown>;
+}

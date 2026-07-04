@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/cadence_protocol",
+  "title": "CadenceProtocol",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["org_id", "daily", "weekly", "monthly", "schema_version"],
+  "$defs": {
+    "delivery": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["slack", "crew-bridge", "email"] }
+    },
+    "weekday": {
+      "type": "string",
+      "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    }
+  },
+  "properties": {
+    "org_id": { "type": "string", "minLength": 1 },
+    "daily": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "run_at", "timezone", "delivery", "output"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "run_at": { "type": "string" },
+        "timezone": { "type": "string" },
+        "delivery": { "$ref": "#/$defs/delivery" },
+        "output": { "type": "string", "enum": ["pulse", "silent"] }
+      }
+    },
+    "weekly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "run_at", "timezone", "delivery", "run_on", "output", "chairs_included"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "run_at": { "type": "string" },
+        "timezone": { "type": "string" },
+        "delivery": { "$ref": "#/$defs/delivery" },
+        "run_on": { "$ref": "#/$defs/weekday" },
+        "output": { "type": "string", "enum": ["brief", "silent"] },
+        "chairs_included": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "monthly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "run_on_day", "output", "delivery"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "run_on_day": { "type": "integer", "minimum": 1, "maximum": 31 },
+        "output": { "type": "string", "enum": ["review", "silent"] },
+        "delivery": { "$ref": "#/$defs/delivery" }
+      }
+    },
+    "schema_version": { "type": "string" }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "commons-board/agent_blueprint",
+  "title": "AgentBlueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["org_id", "chairs", "schema_version"],
+  "$defs": {
+    "labor_commons_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["specialist_slug", "catalog_path", "role", "pinned_ref"],
+      "properties": {
+        "specialist_slug": { "type": "string" },
+        "catalog_path": { "type": "string" },
+        "role": { "type": "string", "enum": ["primary", "supporting"] },
+        "pinned_ref": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "properties": {
+    "org_id": { "type": "string", "minLength": 1 },
+    "chairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "chair_id",
+          "name",
+          "domain",
+          "description",
+          "labor_commons_refs",
+          "scope",
+          "worker_agents",
+          "approval_required_for"
+        ],
+        "properties": {
+          "chair_id": { "type": "string" },
+          "name": { "type": "string" },
+          "domain": { "type": "string" },
+          "description": { "type": "string" },
+          "labor_commons_refs": { "type": "array", "items": { "$ref": "#/$defs/labor_commons_ref" } },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["owns", "refuses", "escalates_to"],
+            "properties": {
+              "owns": { "type": "array", "items": { "type": "string" } },
+              "refuses": { "type": "array", "items": { "type": "string" } },
+              "escalates_to": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "worker_agents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["agent_id", "name", "labor_commons_ref", "task_scope"],
+              "properties": {
+                "agent_id": { "type": "string" },
+                "name": { "type": "string" },
+                "labor_commons_ref": { "type": ["string", "null"] },
+                "task_scope": { "type": "array", "items": { "type": "string" } },
+                "model": { "type": "string" }
+              }
+            }
+          },
+          "approval_required_for": { "type": "array", "items": { "type": "string" } },
+          "model": { "type": "string" },
+          "catalog_gap": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["function_description", "gap_id", "submitted_to_labor_commons"],
+            "properties": {
+              "function_description": { "type": "string" },
+              "gap_id": { "type": "string" },
+              "submitted_to_labor_commons": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "synthesis_model": { "type": "string" },
+    "schema_version": { "type": "string" }
+  }
+}

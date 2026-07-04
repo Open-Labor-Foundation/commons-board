@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment
+.env
+*.env
+
+# Runtime data
+.data/
+.ai/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# TS build info
+*.tsbuildinfo
+
+# Add-in runtime state (created by CB at runtime, not source-controlled)
+/addins/
+
+# Test artifacts
+test-results/
+apps/web/test-results/
+apps/web/playwright-report/
+
+# Compiled output that lands alongside source (tsc without outDir)
+packages/shared/src/**/*.js
+packages/shared/src/**/*.js.map
+packages/shared/src/**/*.d.ts
+packages/shared/src/**/*.d.ts.map
+services/api/src/**/*.js
+services/api/src/**/*.js.map
+services/api/src/**/*.d.ts
+services/api/src/**/*.d.ts.map

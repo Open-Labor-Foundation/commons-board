@@ -1,0 +1,83 @@
+# commons-board — local/self-hosted stack
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: commons
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-commons-dev}
+      POSTGRES_DB: commons_board
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commons -d commons_board"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://commons:${POSTGRES_PASSWORD:-commons-dev}@db:5432/commons_board
+      CB_CONNECTOR_MODE: ${CB_CONNECTOR_MODE:-mock}
+      CB_GOVERNANCE_SIGNING_KEYS_JSON: ${CB_GOVERNANCE_SIGNING_KEYS_JSON:-}
+      CB_GOVERNANCE_ACTIVE_KEY_ID: ${CB_GOVERNANCE_ACTIVE_KEY_ID:-}
+      CB_GOVERNANCE_STRICT_SIGNING: ${CB_GOVERNANCE_STRICT_SIGNING:-false}
+      CB_LABOR_COMMONS_PATH: ${CB_LABOR_COMMONS_PATH:-}
+      # Auth: this stack ships bound to localhost for a single, trusted operator.
+      # CB_INSECURE_HEADER_AUTH trusts client-supplied identity headers with no
+      # verification — safe only because the port below is not exposed off-host.
+      # If you expose this beyond localhost (reverse proxy, remote host, multiple
+      # users), unset this and configure CB_API_TOKEN and/or CB_JWT_SECRET /
+      # CB_OIDC_JWKS_URL instead. See .env.example.
+      CB_INSECURE_HEADER_AUTH: ${CB_INSECURE_HEADER_AUTH:-true}
+      CB_API_TOKEN: ${CB_API_TOKEN:-}
+      CB_JWT_SECRET: ${CB_JWT_SECRET:-}
+      # Inference provider keys — also configurable via the Settings UI
+      FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - cb-signals:/app/signals
+      - cb-data:/app/.data
+      - ${CB_LABOR_COMMONS_HOST_PATH:-/dev/null}:/labor-commons:ro
+      # Docker socket access (container rebuild-restart from the addins UI) is
+      # opt-in — granting it is equivalent to root on the host. Only add it for
+      # a fully trusted, single-operator host, and prefer a scoped
+      # docker-socket-proxy over the raw socket:
+      #   - /var/run/docker.sock:/var/run/docker.sock
+      # If the API cannot reach the Docker socket, add your host docker group GID:
+      #   group_add: ["999"]
+    ports:
+      - "127.0.0.1:4000:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      INTERNAL_API_BASE_URL: http://api:4000
+      NEXT_PUBLIC_COMMONS_WORKSPACE_ID: ${NEXT_PUBLIC_COMMONS_WORKSPACE_ID:-default}
+      NEXT_PUBLIC_COMMONS_USER_ID: ${NEXT_PUBLIC_COMMONS_USER_ID:-operator}
+      NEXT_PUBLIC_COMMONS_USER_ROLE: ${NEXT_PUBLIC_COMMONS_USER_ROLE:-admin}
+    volumes:
+      - cb-signals:/app/signals
+    ports:
+      - "127.0.0.1:3100:3000"
+
+volumes:
+  db-data:
+  cb-signals:
+  cb-data:

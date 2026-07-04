@@ -1,0 +1,521 @@
+import { CURRENT_ARTIFACT_SCHEMA_VERSION } from "@commons-board/shared";
+import type { GovernanceModeValue, InterviewAnswers, InterviewArtifacts, MemberRole } from "./types.js";
+import { searchBySections, getSpecialist } from "../../lib/labor-commons-client.js";
+import { completeText } from "../../lib/model-client.js";
+
+function def<T>(value: T | undefined, fallback: T): T {
+  return value === undefined ? fallback : value;
+}
+
+function riskThreshold(appetite: "low" | "med" | "high" | undefined): number {
+  if (appetite === "low") return 40;
+  if (appetite === "high") return 80;
+  return 60;
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type ChairContext = {
+  name: string;
+  function: string;
+  ui_domain: string;
+  has_workers: boolean;
+};
+
+type WorkerSelection = {
+  chair: ChairContext;
+  workers: Array<{ slug: string; catalog_path: string }>;
+};
+
+// ── Org summary ───────────────────────────────────────────────────────────────
+
+function buildOrgSummary(answers: InterviewAnswers): string {
+  const s1 = answers.S1 ?? {};
+  const s2 = answers.S2 ?? {};
+  const s3 = answers.S3 ?? {};
+  const s4 = answers.S4 ?? {};
+  const parts: string[] = [];
+  if (s1.org_name) parts.push(`Name: ${s1.org_name}`);
+  if (s1.industry) parts.push(`Industry: ${s1.industry}`);
+  if (s1.description) parts.push(`Description: ${s1.description}`);
+  if (s1.size?.headcount) parts.push(`Employees: ${s1.size.headcount}`);
+  if (s1.location?.primary) parts.push(`Location: ${s1.location.primary}`);
+  if (s3.systems?.length) parts.push(`Systems in use: ${s3.systems.join(", ")}`);
+  if (s2.top_pains?.length) parts.push(`Top challenges: ${s2.top_pains.join("; ")}`);
+  if (s2.top_initiatives?.length) parts.push(`Current initiatives: ${s2.top_initiatives.join("; ")}`);
+  if (s4.primary_objective) parts.push(`Primary objective: ${s4.primary_objective}`);
+  if (s4.success_criteria?.length) parts.push(`Success criteria: ${s4.success_criteria.join("; ")}`);
+  if (s4.constraints?.length) parts.push(`Constraints: ${s4.constraints.join("; ")}`);
+  return parts.join("\n");
+}
+
+// ── Industry & domain → catalog section mapping ───────────────────────────────
+
+function isFinancialBusiness(industry: string): boolean {
+  return /financ|bank|credit|insurance|investment|capital market|lend/.test(industry.toLowerCase());
+}
+function isTechBusiness(industry: string): boolean {
+  return /software|saas|tech company|platform|digital product/.test(industry.toLowerCase());
+}
+
+function industrySections(industry: string): string[] {
+  const lower = industry.toLowerCase();
+  if (/restaurant|food|dining|cafe|bar|catering/.test(lower)) return ["food-service-and-restaurants"];
+  if (/retail|shop|store|boutique|gift/.test(lower)) return ["grocery-and-food-retail", "consumer-packaged-goods"];
+  if (/hvac|plumb|electric|mechanical|contractor/.test(lower)) return ["home-services-and-field-consumer-services", "construction-and-field-services"];
+  if (/auto|car|vehicle|mechanic|repair/.test(lower)) return ["automotive-and-mobility", "home-services-and-field-consumer-services"];
+  if (/health|medical|clinic|dental|pharma/.test(lower)) return ["hospitals-and-health-systems", "ambulatory-and-physician-services"];
+  if (/hotel|hospitality|travel|lodging/.test(lower)) return ["hospitality-and-travel", "accommodation-and-travel-services"];
+  return [];
+}
+
+// Hardcoded domain → catalog sections. No LLM guessing here.
+function sectionsByDomain(uiDomain: string, industry: string): string[] {
+  const fin = isFinancialBusiness(industry);
+  const tech = isTechBusiness(industry);
+  const indSecs = industrySections(industry);
+
+  switch (uiDomain) {
+    case "finance":
+      return fin
+        ? ["accounting-tax-and-audit-services", "financial-services", "capital-markets-and-asset-management"]
+        : ["accounting-tax-and-audit-services"];
+
+    case "ops":
+      return [...new Set([...indSecs, "administrative-support-and-business-services", "facilities-services-and-building-operations"])];
+
+    case "hr":
+      // No industry sections — prevents ops workers from bleeding in; function text drives specificity
+      return ["administrative-support-and-business-services"];
+
+    case "growth":
+      return [...new Set([...indSecs, "advertising-media-buying-and-agency-services"])];
+
+    case "it":
+    case "product":
+      return tech
+        ? ["it-service-management-and-support", "business-applications-and-enterprise-platforms", "cloud-platform-and-infrastructure", "software-engineering-and-application-delivery"]
+        : ["it-service-management-and-support"]; // ITSM only for non-tech; avoids enterprise middleware specialists
+
+    case "legal":
+      return ["governance-risk-compliance-and-commercial-control"];
+
+    case "security":
+      return ["cybersecurity", "governance-risk-compliance-and-commercial-control"];
+
+    case "strategy":
+      return [...new Set([...indSecs, "administrative-support-and-business-services"])];
+
+    case "sales":
+      return [...new Set([...indSecs, "advertising-media-buying-and-agency-services"])];
+
+    default:
+      return [...new Set([...indSecs, "administrative-support-and-business-services"])];
+  }
+}
+
+// IT governance slugs that don't belong on legal/security chairs for non-tech businesses
+const IT_GOV_SLUG = /^(it-|software-asset-|enterprise-architecture-|finops-|itsm-|cloud-)/;
+
+// ── Chair contextualization (LLM's only job) ──────────────────────────────────
+
+const CHAIR_CONTEXT_SYSTEM = `You are configuring an advisory board for a specific small business.
+
+Every board always has exactly these six domain seats: Finance, Operations, HR, Growth, Technology, and Legal+Security.
+
+Your task for each seat:
+- Write a name specific to what this seat actually does for THIS business — not a generic department label like "Finance", and never the industry or business type (e.g. never "Restaurant Finance", "HVAC Ops", "Auto Shop HR"). The user already knows what industry they're in; repeating it in every seat name adds nothing and doesn't distinguish one seat from another. Name each seat by its concrete concern instead, e.g. "Cash Flow & Food Cost Control", "Prep Scheduling & Waste Reduction", "Technician Retention & Scheduling".
+- Write a one-sentence function description anchored in this business's actual work, systems, and challenges
+- Set has_workers to false ONLY if this domain has genuinely zero applicability (extremely rare)
+- Set ui_domain to exactly one of: finance, ops, hr, growth, it, legal, security
+
+Domain-specific naming rules:
+- Finance: name must be built ONLY from this fixed list of financial concerns — bookkeeping, cash flow, tax compliance, pricing margins, payroll, revenue tracking, expense budgeting. Do not pull other wording from the business's pain points or initiatives into the Finance name, even if it has a cost angle. Hard rule: the words inventory, parts, dispatch, scheduling, and stocking never appear in the Finance name — those are Ops concerns, even when the underlying pain point is about cost (e.g. "over-stocking on slow-moving parts" is an Ops naming source, not Finance). Good examples: "Cash Flow & Food Cost Control", "Pricing Margins & Tax Compliance", "Payroll & Bookkeeping". Bad examples (industry-prefixed, not specific): "Restaurant Finance & Bookkeeping", "HVAC Business Finance & Cash Flow". Bad examples (Ops language leaking into Finance): "Parts Inventory Cost Control & Cash Flow Management", "Inventory Spend Optimization & Cash Flow".
+- HR: name must reflect workforce — hiring, retention, scheduling, training, culture. Not operational delivery.
+- Legal: function must focus on employment law, vendor contracts, licensing, liability, industry-specific regulatory compliance. Do NOT mention IT governance, data architecture, or cybersecurity (those belong in IT or Security).
+- Security (if split from Legal): physical security, data protection policy, and business risk controls.
+
+For Legal+Security: decide whether to combine them (one entry, ui_domain "legal") or split into two entries (ui_domain "legal" and ui_domain "security"). Most small service businesses get one combined chair.
+
+Return ONLY valid JSON array — no prose, no markdown fences:
+[
+  {"name":"...","function":"...","ui_domain":"finance","has_workers":true},
+  {"name":"...","function":"...","ui_domain":"ops","has_workers":true},
+  {"name":"...","function":"...","ui_domain":"hr","has_workers":true},
+  {"name":"...","function":"...","ui_domain":"growth","has_workers":true},
+  {"name":"...","function":"...","ui_domain":"it","has_workers":true},
+  {"name":"...","function":"...","ui_domain":"legal","has_workers":true}
+]`;
+
+function fallbackChair(uiDomain: string, industry: string): ChairContext {
+  const names: Record<string, string> = {
+    finance: "Financial Planning & Cost Control",
+    ops: "Operations & Service Delivery",
+    hr: "People & Workforce Management",
+    growth: "Growth & Customer Retention",
+    it: "Technology & Systems Management",
+    legal: "Legal, Risk & Compliance",
+    security: "Security & Risk Management",
+  };
+  const fns: Record<string, string> = {
+    finance: `Manage bookkeeping, tax, and financial health for this ${industry} business.`,
+    ops: `Oversee day-to-day operations, scheduling, and service delivery.`,
+    hr: `Handle staffing, scheduling, onboarding, and workforce management.`,
+    growth: `Drive customer acquisition, retention, and revenue growth.`,
+    it: `Manage technology systems, software, and data operations.`,
+    legal: `Ensure legal compliance, contracts, and risk management.`,
+    security: `Manage security posture and risk controls.`,
+  };
+  return {
+    name: names[uiDomain] ?? uiDomain,
+    function: fns[uiDomain] ?? `Advise on ${uiDomain}.`,
+    ui_domain: uiDomain,
+    has_workers: true,
+  };
+}
+
+async function inferChairContexts(
+  answers: InterviewAnswers,
+  orgId: string
+): Promise<ChairContext[]> {
+  const industry = answers.S1?.industry ?? "general";
+  const orgSummary = buildOrgSummary(answers);
+  const prompt = `BUSINESS:\n${orgSummary}\n\nConfigure the six advisory board seats for this business.`;
+
+  try {
+    const raw = await completeText(orgId, CHAIR_CONTEXT_SYSTEM, prompt, {
+      max_tokens: 1600,
+      temperature: 0.2,
+    });
+    const stripped = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    // Match specifically a JSON array of objects: [{...}] — avoids collisions with [bracket] notation in prose
+    const match = stripped.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (!match) throw new Error("no JSON array of objects in response");
+    const contexts = JSON.parse(match[0]) as ChairContext[];
+    if (!Array.isArray(contexts) || contexts.length < 5) throw new Error("too few chairs");
+
+    // Guarantee the five non-negotiable domains are present
+    const present = new Set(contexts.map(c => c.ui_domain));
+    for (const required of ["finance", "ops", "hr", "growth", "it"] as const) {
+      if (!present.has(required)) contexts.push(fallbackChair(required, industry));
+    }
+    // Guarantee at least one of legal/security
+    if (!present.has("legal") && !present.has("security")) {
+      contexts.push(fallbackChair("legal", industry));
+    }
+
+    return contexts;
+  } catch (err) {
+    console.error(`[chair-context] failed for org=${orgId}:`, err instanceof Error ? err.message : err);
+    return ["finance", "ops", "hr", "growth", "it", "legal"].map(d => fallbackChair(d, industry));
+  }
+}
+
+// ── Worker search: code-driven, no LLM ───────────────────────────────────────
+
+async function populateChairWorkers(
+  chair: ChairContext,
+  industry: string
+): Promise<WorkerSelection> {
+  if (!chair.has_workers) return { chair, workers: [] };
+
+  const sections = sectionsByDomain(chair.ui_domain, industry);
+  let results: Awaited<ReturnType<typeof searchBySections>> = [];
+  try {
+    results = await searchBySections(sections, chair.function, industry);
+  } catch {
+    return { chair, workers: [] };
+  }
+
+  // For legal/security chairs on non-tech businesses, drop IT governance specialists
+  const filterItGov = ["legal", "security"].includes(chair.ui_domain) && !isTechBusiness(industry);
+
+  const seen = new Set<string>();
+  const workers: Array<{ slug: string; catalog_path: string }> = [];
+  for (const m of results) {
+    if (seen.has(m.specialist_slug) || workers.length >= 12) continue;
+    if (filterItGov && IT_GOV_SLUG.test(m.specialist_slug)) continue;
+    seen.add(m.specialist_slug);
+    workers.push({ slug: m.specialist_slug, catalog_path: m.catalog_path });
+  }
+
+  return { chair, workers };
+}
+
+// ── Governance ────────────────────────────────────────────────────────────────
+
+function approvalKeysForDomain(uiDomain: string): string[] {
+  switch (uiDomain) {
+    case "finance":   return ["financial_spend_above_threshold"];
+    case "legal":     return ["external_write", "regulatory_commitment"];
+    case "security":  return ["external_write", "regulatory_commitment"];
+    case "hr":        return ["hiring_decisions", "external_write"];
+    default:          return ["external_write"];
+  }
+}
+
+async function buildBlueprintChairs(
+  selections: WorkerSelection[]
+): Promise<Array<{
+  chair_id: string;
+  name: string;
+  domain: string;
+  description: string;
+  labor_commons_refs: Array<{ specialist_slug: string; catalog_path: string; role: "primary" | "supporting"; pinned_ref: null }>;
+  scope: { owns: string[]; refuses: string[]; escalates_to: string[] };
+  worker_agents: Array<{ agent_id: string; name: string; labor_commons_ref: string | null; task_scope: string[] }>;
+  approval_required_for: string[];
+}>> {
+  const allChairNames = selections.map(s => s.chair.name);
+
+  return Promise.all(selections.map(async (sel, chairIdx) => {
+    const chair_id = `chair-${chairIdx + 1}`;
+    const { chair, workers } = sel;
+
+    const refuses: string[] = [];
+    const escalates_to: string[] = [];
+    const owns: string[] = [];
+    const labor_commons_refs: Array<{ specialist_slug: string; catalog_path: string; role: "primary" | "supporting"; pinned_ref: null }> = [];
+    const worker_agents: Array<{ agent_id: string; name: string; labor_commons_ref: string | null; task_scope: string[] }> = [];
+
+    for (let i = 0; i < workers.length; i++) {
+      const { slug, catalog_path } = workers[i];
+      const spec = await getSpecialist(slug).catch(() => null);
+
+      labor_commons_refs.push({ specialist_slug: slug, catalog_path, role: i === 0 ? "primary" : "supporting", pinned_ref: null });
+      worker_agents.push({
+        agent_id: `${chair_id}-worker-${i + 1}`,
+        name: spec?.metadata.name ?? slug,
+        labor_commons_ref: slug,
+        task_scope: (spec?.scope.supported_tasks ?? []).slice(0, 5),
+      });
+
+      if (spec?.metadata.specialty_boundary) {
+        const b = spec.metadata.specialty_boundary.slice(0, 120);
+        if (!owns.includes(b)) owns.push(b);
+      }
+      for (const rule of spec?.scope.out_of_scope_rules ?? []) {
+        if (!refuses.includes(rule)) refuses.push(rule);
+      }
+      for (const adj of spec?.adjacent_specialties ?? []) {
+        // Only escalate to chairs actually on this board — a raw catalog slug with
+        // no chair backing it isn't something a governance consumer can route to.
+        const matchingChair = allChairNames.find((_, idx) => selections[idx].workers.some(w => w.slug === adj));
+        if (matchingChair && !escalates_to.includes(matchingChair)) escalates_to.push(matchingChair);
+      }
+    }
+
+    if (worker_agents.length === 0) {
+      worker_agents.push({ agent_id: `${chair_id}-worker-1`, name: `${chair.name} Advisor`, labor_commons_ref: null, task_scope: [] });
+      owns.push(chair.function);
+    }
+
+    return {
+      chair_id,
+      name: chair.name,
+      domain: chair.ui_domain,
+      description: chair.function,
+      labor_commons_refs,
+      scope: { owns, refuses: refuses.slice(0, 10), escalates_to },
+      worker_agents,
+      approval_required_for: approvalKeysForDomain(chair.ui_domain),
+    };
+  }));
+}
+
+// ── Agent blueprint ───────────────────────────────────────────────────────────
+
+async function buildAgentBlueprint(
+  answers: InterviewAnswers,
+  orgId: string
+): Promise<{ chairs: Awaited<ReturnType<typeof buildBlueprintChairs>> }> {
+  const industry = answers.S1?.industry ?? "general";
+
+  // Step 1: LLM contextualizes chair names + functions (guaranteed domains, legal/security split)
+  const chairContexts = await inferChairContexts(answers, orgId);
+
+  // Step 2: Code searches catalog per domain — no LLM involvement in worker selection
+  const selections = await Promise.all(
+    chairContexts.map(chair => populateChairWorkers(chair, industry))
+  );
+
+  // Step 3: Assemble with governance from specs
+  const chairs = await buildBlueprintChairs(selections);
+  return { chairs };
+}
+
+// ── Artifact generators ───────────────────────────────────────────────────────
+
+function buildBusinessProfile(answers: InterviewAnswers, orgId: string) {
+  const s0 = answers.S0 ?? {};
+  const s1 = answers.S1 ?? {};
+  const s3 = answers.S3 ?? {};
+  const mode = (s0.governance_mode ?? "business") as GovernanceModeValue;
+  return {
+    org_id: orgId,
+    org_name: def(s1.org_name, "My Organization"),
+    governance_mode: mode,
+    description: def(s1.description, ""),
+    industry: def(s1.industry, "general"),
+    primary_domain: def(s1.primary_domain, "ops"),
+    operating_since: def(s1.operating_since, null),
+    location: {
+      primary: def(s1.location?.primary, ""),
+      regions: def(s1.location?.regions, []),
+    },
+    size: {
+      headcount: def(s1.size?.headcount, 0),
+      member_count: def(s1.size?.member_count, null),
+    },
+    external_systems: def(s3.systems, []),
+    created_at: new Date().toISOString(),
+    schema_version: CURRENT_ARTIFACT_SCHEMA_VERSION,
+  };
+}
+
+function buildObjectiveConfig(answers: InterviewAnswers, orgId: string) {
+  const s4 = answers.S4 ?? {};
+  return {
+    org_id: orgId,
+    primary_objectives: [
+      {
+        id: "obj-1",
+        description: def(s4.primary_objective, "Operate sustainably and grow."),
+        type: def(s4.objective_type, "other" as const),
+        priority: 1,
+        success_criteria: def(s4.success_criteria, []),
+        target_date: def(s4.target_date, null),
+      },
+    ],
+    kpis: (s4.kpis ?? []).map((k, i) => ({
+      id: `kpi-${i + 1}`,
+      name: k.name,
+      unit: k.unit,
+      current_value: null,
+      target_value: k.target_value,
+      reporting_cadence: k.reporting_cadence,
+    })),
+    constraints: def(s4.constraints, []),
+    schema_version: CURRENT_ARTIFACT_SCHEMA_VERSION,
+  };
+}
+
+function buildAutonomyPolicy(answers: InterviewAnswers, orgId: string) {
+  const s5 = answers.S5 ?? {};
+  return {
+    org_id: orgId,
+    autonomy_mode: def(s5.autonomy_mode, "advisor" as const),
+    execution_mode: def(s5.execution_mode, "sim" as const),
+    approval_thresholds: {
+      financial_spend_auto_limit: 0,
+      outreach_auto_limit: 0,
+      content_publish_requires_approval: true,
+      external_write_requires_approval: true,
+    },
+    disabled_capabilities: [],
+    hr_agent_enabled: false,
+    per_person_analytics_enabled: false,
+    slack_dm_enabled: false,
+    slack_channel_whitelist: def(s5.slack_channel_whitelist, []),
+    risk_escalation_threshold: riskThreshold(s5.risk_appetite),
+    blast_radius_escalation_threshold: "medium",
+    schema_version: CURRENT_ARTIFACT_SCHEMA_VERSION,
+  };
+}
+
+function buildCadenceProtocol(answers: InterviewAnswers, orgId: string) {
+  const s6 = answers.S6 ?? {};
+  const tz = def(s6.timezone, "America/Chicago");
+  return {
+    org_id: orgId,
+    daily: {
+      enabled: true,
+      run_at: def(s6.daily_run_at, "08:00"),
+      timezone: tz,
+      delivery: def(s6.daily_delivery, ["crew-bridge"] as const),
+      output: "pulse" as const,
+    },
+    weekly: {
+      enabled: true,
+      run_on: def(s6.weekly_run_on, "monday" as const),
+      run_at: def(s6.weekly_run_at, "08:00"),
+      timezone: tz,
+      delivery: def(s6.weekly_delivery, ["crew-bridge"] as const),
+      output: "brief" as const,
+      chairs_included: ["all"],
+    },
+    monthly: {
+      enabled: true,
+      run_on_day: def(s6.monthly_run_on_day, 1),
+      output: "review" as const,
+      delivery: def(s6.monthly_delivery, ["crew-bridge"] as const),
+    },
+    schema_version: CURRENT_ARTIFACT_SCHEMA_VERSION,
+  };
+}
+
+function buildCollectiveConfig(answers: InterviewAnswers, orgId: string) {
+  const s8 = answers.S8 ?? {};
+  const voteMethod = def(s8.vote_method, "simple_majority" as const);
+  return {
+    org_id: orgId,
+    membership: {
+      member_roles: def(s8.member_roles, ["member", "steward"] as MemberRole[]),
+      quorum_threshold: def(s8.quorum_threshold, 0.5),
+      active_member_count: def(s8.active_member_count, 0),
+    },
+    voting: {
+      standard_vote_duration_hours: def(s8.standard_vote_duration_hours, 72),
+      urgent_vote_duration_hours: def(s8.urgent_vote_duration_hours, 24),
+      vote_method: voteMethod,
+      supermajority_threshold: voteMethod === "supermajority" ? 0.67 : null,
+      decisions_requiring_vote: def(s8.decisions_requiring_vote, [
+        "budget_above_threshold",
+        "new_member_admission",
+        "policy_change",
+      ]),
+      decisions_requiring_consensus: def(s8.decisions_requiring_consensus, []),
+    },
+    contribution_tracking: {
+      enabled: true,
+      tracked_actions: ["vote", "approval", "meeting_attendance", "task_completion"] as const,
+    },
+    amendment_protocol: {
+      proposal_requires: "steward" as const,
+      notice_period_hours: 48,
+      amendment_vote_method: "supermajority" as const,
+    },
+    schema_version: CURRENT_ARTIFACT_SCHEMA_VERSION,
+  };
+}
+
+// ── Main entry point ──────────────────────────────────────────────────────────
+
+export async function generateArtifacts(
+  answers: InterviewAnswers,
+  orgId: string
+): Promise<InterviewArtifacts> {
+  const mode = (answers.S0?.governance_mode ?? "business") as GovernanceModeValue;
+
+  const { chairs } = await buildAgentBlueprint(answers, orgId);
+
+  const agentBlueprint = {
+    org_id: orgId,
+    chairs,
+    schema_version: CURRENT_ARTIFACT_SCHEMA_VERSION,
+  };
+
+  const artifacts: InterviewArtifacts = {
+    business_profile: buildBusinessProfile(answers, orgId),
+    objective_config: buildObjectiveConfig(answers, orgId),
+    autonomy_policy: buildAutonomyPolicy(answers, orgId),
+    cadence_protocol: buildCadenceProtocol(answers, orgId),
+    agent_blueprint: agentBlueprint,
+  };
+
+  if (mode === "collective") {
+    artifacts.collective_config = buildCollectiveConfig(answers, orgId);
+  }
+
+  return artifacts;
+}
