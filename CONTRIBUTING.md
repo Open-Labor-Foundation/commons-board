@@ -1,5 +1,7 @@
 # Contributing to commons-board
 
+> **A note on contributions:** This repository is public for transparency, but is not yet accepting external issues or pull requests directly. Issues are disabled repo-wide, and pull requests from outside collaborators aren't reviewed at this stage. This is expected to change as the project matures — check back, or watch [openlabor.foundation](https://openlabor.foundation) for updates.
+
 commons-board is the organizational governance platform of the Open Labor Foundation. It runs an organization — a business or a worker collective — through a governed hierarchy of AI chairs and worker agents backed by [labor-commons](https://github.com/Open-Labor-Foundation/labor-commons) specialists.
 
 ## Before you start
