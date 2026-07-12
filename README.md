@@ -16,11 +16,17 @@ execution, staffed by specialists defined in
 > be a top-level commons-crew instance, not separately staffed. Today it
 > resolves specialists on its own directly against labor-commons, which only
 > reaches the chair-level slice of the catalog and duplicates what should be
-> commons-crew's job; that resolver is expected to retire once commons-crew
-> supports recursive delegation. commons-board can currently determine what
-> should happen about a gap but has no way to close one that doesn't already
-> exist as a capability — that depends on commons-crew's recursive delegation
-> and the forthcoming `artifact-commons` repo, neither built yet.
+> commons-crew's job. commons-crew now supports recursive delegation and
+> chair registration (`pa.createChairRun`) — built, tested, merged — but
+> nothing in commons-board calls it yet; that resolver should retire in
+> favor of it. Separately, and independent of that fix: even a correct
+> resolver is currently searching the wrong part of the catalog for a chair
+> — labor-commons only has industry-vertical specialists today
+> (`naics-overlays`), not the generic corporate-function specialists
+> (`function-overlays`, planned, not yet migrated) a chair actually needs.
+> commons-board can currently determine what should happen about a gap but
+> has no way to close one that doesn't already exist as a capability — that
+> depends on the forthcoming `artifact-commons` repo, not built yet.
 
 ## The governed hierarchy
 
