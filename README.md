@@ -10,6 +10,18 @@ execution, staffed by specialists defined in
 > [planning/concept.md](planning/concept.md) and
 > [planning/execution-plan.md](planning/execution-plan.md).
 
+> **Known shortcomings:** see [open-labor-foundation/ARCHITECTURE.md](https://github.com/Open-Labor-Foundation/open-labor-foundation/blob/main/ARCHITECTURE.md)
+> for the full ecosystem picture. commons-board is meant to be governance
+> wrapped around a collection of commons-crew instances — every chair should
+> be a top-level commons-crew instance, not separately staffed. Today it
+> resolves specialists on its own directly against labor-commons, which only
+> reaches the chair-level slice of the catalog and duplicates what should be
+> commons-crew's job; that resolver is expected to retire once commons-crew
+> supports recursive delegation. commons-board can currently determine what
+> should happen about a gap but has no way to close one that doesn't already
+> exist as a capability — that depends on commons-crew's recursive delegation
+> and the forthcoming `artifact-commons` repo, neither built yet.
+
 ## The governed hierarchy
 
 Every action moves through a chain of authority, not a flat pool of agents:
