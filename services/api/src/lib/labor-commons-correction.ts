@@ -26,12 +26,27 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { parseDocument } from "yaml";
 import { specYamlPath, catalogPathFor } from "./labor-commons-client.js";
 
 const execFileAsync = promisify(execFile);
+
+// catalogPathFor's slugs are already validated by labor-commons-client.ts
+// (throws on anything but a real catalog-slug shape), but that guarantee
+// isn't visible from this file's own join() call in isolation -- this is
+// the same resolve-and-check-prefix pattern applied a second time, at the
+// actual sink, so this file's own path safety doesn't depend on trusting
+// what a different module did earlier.
+function assertWithinWorktree(worktreeDir: string, candidate: string): string {
+  const worktreeRoot = resolve(worktreeDir) + sep;
+  const resolved = resolve(candidate);
+  if (!resolved.startsWith(worktreeRoot)) {
+    throw new Error("Resolved correction path escapes the ephemeral worktree -- rejected.");
+  }
+  return candidate;
+}
 
 export interface SpecCorrectionInput {
   sectionSlug: string;
@@ -79,7 +94,7 @@ export async function proposeSpecCorrection(input: SpecCorrectionInput): Promise
     await run("git", ["fetch", "origin", "main"], lcPath);
     await run("git", ["worktree", "add", worktreeDir, "-b", branch, "origin/main"], lcPath);
 
-    const worktreeSpecPath = join(worktreeDir, catalogPathFor(input.sectionSlug, input.agentSlug));
+    const worktreeSpecPath = assertWithinWorktree(worktreeDir, join(worktreeDir, catalogPathFor(input.sectionSlug, input.agentSlug)));
     if (!existsSync(worktreeSpecPath)) return null;
 
     const raw = readFileSync(worktreeSpecPath, "utf8");
