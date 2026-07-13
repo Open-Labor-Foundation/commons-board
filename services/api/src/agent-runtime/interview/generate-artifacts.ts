@@ -70,6 +70,13 @@ function industrySections(industry: string): string[] {
 }
 
 // Hardcoded domain → catalog sections. No LLM guessing here.
+//
+// Every case includes exactly one catalog/function-overlays/ section
+// alongside the naics-overlays industry sections. A chair needs generic
+// corporate-function depth (FP&A/treasury/AP-AR for finance, not an
+// industry-vertical operational specialist) -- without this, chair
+// matching only ever searched industry verticals, so the specialty type
+// a chair actually needs was never in the search scope at all.
 function sectionsByDomain(uiDomain: string, industry: string): string[] {
   const fin = isFinancialBusiness(industry);
   const tech = isTechBusiness(industry);
@@ -78,36 +85,36 @@ function sectionsByDomain(uiDomain: string, industry: string): string[] {
   switch (uiDomain) {
     case "finance":
       return fin
-        ? ["accounting-tax-and-audit-services", "financial-services", "capital-markets-and-asset-management"]
-        : ["accounting-tax-and-audit-services"];
+        ? ["accounting-tax-and-audit-services", "financial-services", "capital-markets-and-asset-management", "finance"]
+        : ["accounting-tax-and-audit-services", "finance"];
 
     case "ops":
-      return [...new Set([...indSecs, "administrative-support-and-business-services", "facilities-services-and-building-operations"])];
+      return [...new Set([...indSecs, "administrative-support-and-business-services", "facilities-services-and-building-operations", "operations"])];
 
     case "hr":
       // No industry sections — prevents ops workers from bleeding in; function text drives specificity
-      return ["administrative-support-and-business-services"];
+      return ["administrative-support-and-business-services", "human-resources"];
 
     case "growth":
-      return [...new Set([...indSecs, "advertising-media-buying-and-agency-services"])];
+      return [...new Set([...indSecs, "advertising-media-buying-and-agency-services", "marketing"])];
 
     case "it":
     case "product":
       return tech
-        ? ["it-service-management-and-support", "business-applications-and-enterprise-platforms", "cloud-platform-and-infrastructure", "software-engineering-and-application-delivery"]
-        : ["it-service-management-and-support"]; // ITSM only for non-tech; avoids enterprise middleware specialists
+        ? ["it-service-management-and-support", "business-applications-and-enterprise-platforms", "cloud-platform-and-infrastructure", "software-engineering-and-application-delivery", "data-analytics-and-ai"]
+        : ["it-service-management-and-support", "data-analytics-and-ai"]; // ITSM only for non-tech; avoids enterprise middleware specialists
 
     case "legal":
-      return ["governance-risk-compliance-and-commercial-control"];
+      return ["governance-risk-compliance-and-commercial-control", "legal-and-compliance"];
 
     case "security":
-      return ["cybersecurity", "governance-risk-compliance-and-commercial-control"];
+      return ["cybersecurity", "governance-risk-compliance-and-commercial-control", "security-and-risk"];
 
     case "strategy":
-      return [...new Set([...indSecs, "administrative-support-and-business-services"])];
+      return [...new Set([...indSecs, "administrative-support-and-business-services", "chief-executive-and-strategy"])];
 
     case "sales":
-      return [...new Set([...indSecs, "advertising-media-buying-and-agency-services"])];
+      return [...new Set([...indSecs, "advertising-media-buying-and-agency-services", "sales-and-revenue"])];
 
     default:
       return [...new Set([...indSecs, "administrative-support-and-business-services"])];

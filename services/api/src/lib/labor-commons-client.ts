@@ -94,8 +94,30 @@ function dbPath(): string {
   return join(lcRoot(), "data", "catalogs", "agent_catalog.sqlite");
 }
 
-function specYamlPath(sectionSlug: string, agentSlug: string): string {
-  return join(lcRoot(), "catalog", "naics-overlays", sectionSlug, agentSlug, "spec.yaml");
+// labor-commons has two overlay axes under catalog/: naics-overlays
+// (industry-vertical, e.g. section_slug "accounting-tax-and-audit-services")
+// and function-overlays (generic corporate-function, e.g. section_slug
+// "finance"). A row's section_slug alone doesn't say which axis it came
+// from, so this tries both -- naics-overlays first, since it's the larger,
+// more established axis and the common case.
+const OVERLAY_DIR_NAMES = ["naics-overlays", "function-overlays"] as const;
+
+/** Which overlay axis a section_slug/agent_slug pair actually resolves under, or the naics-overlays default if neither exists. */
+export function resolveOverlayDirName(sectionSlug: string, agentSlug: string): (typeof OVERLAY_DIR_NAMES)[number] {
+  for (const overlayDirName of OVERLAY_DIR_NAMES) {
+    const candidate = join(lcRoot(), "catalog", overlayDirName, sectionSlug, agentSlug, "spec.yaml");
+    if (existsSync(candidate)) return overlayDirName;
+  }
+  return "naics-overlays";
+}
+
+export function specYamlPath(sectionSlug: string, agentSlug: string): string {
+  return join(lcRoot(), "catalog", resolveOverlayDirName(sectionSlug, agentSlug), sectionSlug, agentSlug, "spec.yaml");
+}
+
+/** Relative catalog_path for API responses -- must match specYamlPath's resolved axis, not always claim naics-overlays. */
+export function catalogPathFor(sectionSlug: string, agentSlug: string): string {
+  return `catalog/${resolveOverlayDirName(sectionSlug, agentSlug)}/${sectionSlug}/${agentSlug}/spec.yaml`;
 }
 
 // ── SQLite connection (singleton per process) ──────────────────────────────
@@ -134,8 +156,17 @@ function loadSpec(sectionSlug: string, agentSlug: string): SpecialistDefinition 
 
 /**
  * Maps chair domain types to section_slug values in the SQLite catalog.
- * section_slug is the directory name under catalog/naics-overlays/ and the
- * primary search scope for that domain.
+ * section_slug is the directory name under catalog/naics-overlays/ (or, as
+ * of the function-overlays axis, catalog/function-overlays/) -- the
+ * search scope for that domain.
+ *
+ * Every domain gets exactly one function-overlays section_slug appended:
+ * the generic corporate-function specialists a chair in that domain
+ * actually needs (e.g. a finance chair needs FP&A/treasury/AP-AR depth,
+ * not an industry-vertical operational specialist). Without this, chair
+ * matching only ever searched industry verticals -- the specialty type a
+ * chair needs was never in the search scope at all, regardless of how
+ * good the matching logic was.
  */
 const DOMAIN_SECTION_SLUGS: Record<string, string[]> = {
   finance: [
@@ -143,31 +174,36 @@ const DOMAIN_SECTION_SLUGS: Record<string, string[]> = {
     "capital-markets-and-asset-management",
     "financial-services",
     "fintech-and-embedded-finance",
-    "housing-real-estate-development-and-community-development"
+    "housing-real-estate-development-and-community-development",
+    "finance"
   ],
   ops: [
     "facilities-services-and-building-operations",
     "administrative-support-and-business-services",
     "commercial-and-industrial-construction",
     "construction-and-field-services",
-    "air-transportation-and-airports"
+    "air-transportation-and-airports",
+    "operations"
   ],
   legal: [
     "governance-risk-compliance-and-commercial-control",
     "customs-brokerage-and-trade-compliance",
-    "public-administration-and-tax-operations"
+    "public-administration-and-tax-operations",
+    "legal-and-compliance"
   ],
   hr: [
     "administrative-support-and-business-services",
     "education",
-    "higher-education-and-research-institutions"
+    "higher-education-and-research-institutions",
+    "human-resources"
   ],
   growth: [
     "advertising-media-buying-and-agency-services",
     "consumer-packaged-goods",
     "grocery-and-food-retail",
     "home-services-and-field-consumer-services",
-    "hospitality-and-travel"
+    "hospitality-and-travel",
+    "marketing"
   ],
   it: [
     "cloud-platform-and-infrastructure",
@@ -177,36 +213,42 @@ const DOMAIN_SECTION_SLUGS: Record<string, string[]> = {
     "networking-and-connectivity",
     "legacy-systems-automation-and-integration",
     "software-engineering-and-application-delivery",
-    "business-applications-and-enterprise-platforms"
+    "business-applications-and-enterprise-platforms",
+    "data-analytics-and-ai"
   ],
   security: [
     "cybersecurity",
     "governance-risk-compliance-and-commercial-control",
-    "identity-endpoint-and-workplace-technology"
+    "identity-endpoint-and-workplace-technology",
+    "security-and-risk"
   ],
   product: [
     "software-engineering-and-application-delivery",
     "business-applications-and-enterprise-platforms",
     "data-analytics-and-ai",
-    "information-software-and-digital-media"
+    "information-software-and-digital-media",
+    "product-and-portfolio"
   ],
   rnd: [
     "data-analytics-and-ai",
     "aerospace-and-defense",
     "chemicals-plastics-and-materials-manufacturing",
-    "software-engineering-and-application-delivery"
+    "software-engineering-and-application-delivery",
+    "research-and-innovation"
   ],
   sales: [
     "advertising-media-buying-and-agency-services",
     "consumer-packaged-goods",
     "grocery-and-food-retail",
-    "franchise-systems-and-multi-unit-enterprise-support"
+    "franchise-systems-and-multi-unit-enterprise-support",
+    "sales-and-revenue"
   ],
   strategy: [
     "governance-risk-compliance-and-commercial-control",
     "capital-markets-and-asset-management",
     "business-applications-and-enterprise-platforms",
-    "data-analytics-and-ai"
+    "data-analytics-and-ai",
+    "chief-executive-and-strategy"
   ]
 };
 
@@ -407,7 +449,7 @@ export async function searchSpecialists(query: SpecialistQuery): Promise<Special
 
     results.push({
       specialist_slug: cand.agent_slug,
-      catalog_path: `catalog/naics-overlays/${cand.section_slug}/${cand.agent_slug}/spec.yaml`,
+      catalog_path: catalogPathFor(cand.section_slug, cand.agent_slug),
       display_name: spec?.metadata.name ?? cand.agent_name,
       domain_family: domainFamily,
       match_score: matchScore,
@@ -491,7 +533,7 @@ export async function searchBySections(
 
     results.push({
       specialist_slug: r.agent_slug,
-      catalog_path: `catalog/naics-overlays/${r.section_slug}/${r.agent_slug}/spec.yaml`,
+      catalog_path: catalogPathFor(r.section_slug, r.agent_slug),
       display_name: spec?.metadata.name ?? r.agent_name,
       domain_family: spec?.metadata.domain_family ?? r.section_slug,
       match_score: matchScore,
