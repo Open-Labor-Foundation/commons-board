@@ -6,10 +6,13 @@ const _dirname = path.dirname(fileURLToPath(import.meta.url));
 const ADDINS_DIR = process.env.ADDINS_DIR ?? path.resolve(_dirname, "../../../../addins");
 
 // Local catalog path used in development when ADDINS_CATALOG_URL is not set.
-// Resolves to <OLF>/commons-artifacts/ca-board-addins/catalog.json
+// Resolves to <OLF>/artifact-commons/catalog.json -- commons-artifacts'
+// addin-economy role moved there (see artifact-commons' own README); the
+// two packs with real content (gig-cooperative, startup-launch) migrated
+// with it, and this is the only place that pointed at the old location.
 const LOCAL_CATALOG_PATH =
   process.env.ADDINS_CATALOG_PATH ??
-  path.resolve(ADDINS_DIR, "../../commons-artifacts/ca-board-addins/catalog.json");
+  path.resolve(ADDINS_DIR, "../../artifact-commons/catalog.json");
 
 export type AddinNavItem = { href: string; label: string };
 
