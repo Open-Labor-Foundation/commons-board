@@ -21,14 +21,34 @@ execution, staffed by specialists defined in
 > *preview* — which specialist gets pinned to a chair for a human to review
 > — still runs through commons-board's own labor-commons search, now
 > correctly covering both catalog axes (`naics-overlays` and
-> `function-overlays`, migrated). What's still open: a chair's registered
-> commons-crew run isn't wired to anything yet — actually routing day-to-day
-> task execution through it, so `delegate_to_child` chains reach the
-> line-level catalog (director → department → worker), is a distinct,
-> larger integration not started. commons-board can currently determine
-> what should happen about a gap but has no way to close one that doesn't
-> already exist as a capability — that depends on the forthcoming
-> `artifact-commons` repo, not built yet.
+> `function-overlays`, migrated).
+>
+> A chair's registered run can now actually be used, not just held:
+> `POST /api/v1/board/requests/:id/dispatch-to-commons-crew` proposes a
+> `delegate_to_child` dispatch of a board request to its target chair's
+> commons-crew run (safe to call automatically — it only creates a proposal,
+> no real-world effect), and a **separate**, explicitly admin/operator-gated
+> `POST .../dispatch-to-commons-crew/decision` is the only thing that can
+> actually approve and execute it — `decision` is a required input with no
+> default, so nothing auto-approves a real-world-impact action on a human's
+> behalf. Verified end to end against real running servers: propose →
+> explicit approve → real delegated child run, and propose → explicit deny
+> → no execution. One known limitation: commons-crew's approval endpoint
+> checks workspace membership against its own seeded identity
+> (`user_primary`) — there's no actor-identity bridge yet between
+> commons-board's per-org users and commons-crew's workspace members, so the
+> real deciding admin is recorded faithfully in commons-board's own audit
+> log but not (yet) forwarded as commons-crew's actor of record.
+>
+> What's still open: this dispatch mechanism exists but nothing in
+> commons-board's normal request lifecycle calls it automatically yet — an
+> admin/operator has to trigger it explicitly per request. Wiring it into
+> the default board-request flow (and reconciling it with the existing
+> direct-LLM chair-reasoning path in `chair-reasoning.ts`, which this does
+> not touch or replace) is a deliberate, separate decision, not made here.
+> commons-board can currently determine what should happen about a gap but
+> has no way to close one that doesn't already exist as a capability — that
+> depends on the forthcoming `artifact-commons` repo, not built yet.
 
 ## The governed hierarchy
 
