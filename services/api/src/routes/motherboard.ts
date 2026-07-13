@@ -8,17 +8,20 @@
  *   PATCH /api/v1/board/requests/:id         — update status, priority, or metadata
  *   POST /api/v1/board/requests/:id/roadmap  — build a roadmap for a request
  *   GET  /api/v1/board/requests/:id/roadmap  — get latest roadmap
+ *   POST /api/v1/board/requests/:id/dispatch-to-commons-crew          — propose a delegate_to_child dispatch to the target chair's commons-crew run
+ *   POST /api/v1/board/requests/:id/dispatch-to-commons-crew/decision — record an explicit admin/operator decision on a proposed dispatch
  *
  * Sanitized from mother-board: no grant-pipeline, loan-packet, or aieb workflow keys.
  */
 import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
-import type { BoardDomain, BoardRequestRecord, BoardRoadmapRecord, GovernanceEvent } from "@commons-board/shared";
+import type { BoardDomain, BoardRequestRecord, BoardRoadmapRecord, CommonsCrewDispatchState, GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { routeBoardRequest, buildRoadmapPhases, buildRoadmapSummary, isValidStatusTransition } from "../lib/board-orchestration.js";
 import { getArtifact } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
+import { proposeDispatchToChair, submitDispatchDecision } from "../lib/commons-crew-client.js";
 
 export const motherboardRouter = Router();
 motherboardRouter.use(requireContext);
@@ -252,4 +255,136 @@ motherboardRouter.get("/requests/:id/roadmap", (req: Request, res: Response) => 
     return;
   }
   res.status(200).json({ roadmap });
+});
+
+/**
+ * POST /api/v1/board/requests/:id/dispatch-to-commons-crew
+ *
+ * Proposes a delegate_to_child dispatch of this request to its target
+ * chair's registered commons-crew run. This step is safe to run
+ * automatically -- it only ensures a pending delegation approval exists
+ * and creates a proposal, neither of which has any real-world effect.
+ * Nothing executes until an admin/operator explicitly decides via the
+ * /decision endpoint below.
+ */
+motherboardRouter.post("/requests/:id/dispatch-to-commons-crew", requireRole(["admin", "operator"]), async (req: Request, res: Response) => {
+  const ctx = req.ctx!;
+  const all = readJson<BoardRequestRecord[]>(requestsKey(ctx.workspaceId), []);
+  const idx = all.findIndex((r) => r.id === req.params.id);
+  if (idx < 0) {
+    res.status(404).json({ error: "board request not found" });
+    return;
+  }
+  const request = all[idx];
+  const now = new Date().toISOString();
+
+  const blueprintRecord = getArtifact(ctx.workspaceId, "agent_blueprint");
+  const blueprintChairs = (blueprintRecord?.payload as { chairs?: Array<{ chair_id: string; commons_crew_run_id?: string | null }> } | undefined)?.chairs ?? [];
+  const chair = blueprintChairs.find((c) => c.chair_id === request.target_chair_id);
+
+  if (!chair?.commons_crew_run_id) {
+    const dispatch: CommonsCrewDispatchState = { status: "unavailable", reason: "target chair has no registered commons-crew run", attempted_at: now };
+    all[idx] = { ...request, commons_crew_dispatch: dispatch, updated_at: now };
+    writeJsonAtomic(requestsKey(ctx.workspaceId), all);
+    res.status(422).json({ error: "target chair has no registered commons-crew run", request: all[idx] });
+    return;
+  }
+
+  const proposed = await proposeDispatchToChair({ runId: chair.commons_crew_run_id, workDescription: request.request });
+  if (!proposed) {
+    const dispatch: CommonsCrewDispatchState = { status: "unavailable", reason: "commons-crew is not reachable or the proposal failed", attempted_at: now };
+    all[idx] = { ...request, commons_crew_dispatch: dispatch, updated_at: now };
+    writeJsonAtomic(requestsKey(ctx.workspaceId), all);
+    res.status(422).json({ error: "commons-crew dispatch proposal failed", request: all[idx] });
+    return;
+  }
+
+  const dispatch: CommonsCrewDispatchState = {
+    status: "awaiting_decision",
+    approval_id: proposed.approvalId,
+    proposal_id: proposed.proposalId,
+    run_id: proposed.runId,
+    proposed_at: now
+  };
+  all[idx] = { ...request, commons_crew_dispatch: dispatch, updated_at: now };
+  writeJsonAtomic(requestsKey(ctx.workspaceId), all);
+
+  appendEvent({
+    event_id: randomUUID(),
+    org_id: ctx.workspaceId,
+    event_type: "board_request_commons_crew_dispatch_proposed",
+    actor: ctx.userId,
+    artifact_type: null,
+    artifact_id: null,
+    details: { request_id: request.id, approval_id: proposed.approvalId, proposal_id: proposed.proposalId, run_id: proposed.runId },
+    at: now
+  } satisfies GovernanceEvent);
+
+  res.status(201).json({ request: all[idx] });
+});
+
+/**
+ * POST /api/v1/board/requests/:id/dispatch-to-commons-crew/decision
+ *
+ * Records an EXPLICIT admin/operator decision on a proposed dispatch and
+ * relays it to commons-crew. `decision` is required in the request body
+ * with no default -- this route cannot approve anything on its own, only
+ * forward a decision an authenticated admin/operator actually made.
+ */
+motherboardRouter.post("/requests/:id/dispatch-to-commons-crew/decision", requireRole(["admin", "operator"]), async (req: Request, res: Response) => {
+  const ctx = req.ctx!;
+  const all = readJson<BoardRequestRecord[]>(requestsKey(ctx.workspaceId), []);
+  const idx = all.findIndex((r) => r.id === req.params.id);
+  if (idx < 0) {
+    res.status(404).json({ error: "board request not found" });
+    return;
+  }
+  const request = all[idx];
+  const dispatch = request.commons_crew_dispatch;
+  if (!dispatch || dispatch.status !== "awaiting_decision") {
+    res.status(422).json({ error: "no commons-crew dispatch is awaiting a decision on this request" });
+    return;
+  }
+
+  const body = req.body as { decision?: "approved" | "denied"; comment?: string };
+  if (body.decision !== "approved" && body.decision !== "denied") {
+    res.status(400).json({ error: 'decision must be "approved" or "denied"' });
+    return;
+  }
+
+  const result = await submitDispatchDecision({
+    approvalId: dispatch.approval_id,
+    proposalId: dispatch.proposal_id,
+    runId: dispatch.run_id,
+    decision: body.decision,
+    actorUserId: ctx.userId,
+    comment: body.comment
+  });
+
+  if (!result) {
+    res.status(422).json({ error: "commons-crew decision could not be recorded" });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const updatedDispatch: CommonsCrewDispatchState =
+    result.decision === "approved"
+      ? { status: "approved", child_run_id: result.childRunId!, layer: result.layer!, decided_at: now, decided_by: ctx.userId }
+      : { status: "denied", decided_at: now, decided_by: ctx.userId };
+
+  all[idx] = { ...request, commons_crew_dispatch: updatedDispatch, updated_at: now };
+  writeJsonAtomic(requestsKey(ctx.workspaceId), all);
+
+  appendEvent({
+    event_id: randomUUID(),
+    org_id: ctx.workspaceId,
+    event_type: "board_request_commons_crew_dispatch_decided",
+    actor: ctx.userId,
+    artifact_type: null,
+    artifact_id: null,
+    details: { request_id: request.id, decision: result.decision, child_run_id: result.decision === "approved" ? result.childRunId : null },
+    at: now
+  } satisfies GovernanceEvent);
+
+  res.status(200).json({ request: all[idx] });
 });

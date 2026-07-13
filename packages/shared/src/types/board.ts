@@ -50,7 +50,15 @@ export interface BoardRequestRecord {
   latest_roadmap_version?: number;
   created_at: string;
   updated_at: string;
+  /** Set once a delegate_to_child proposal is proposed against the target chair's commons-crew run; null until a dispatch is attempted. */
+  commons_crew_dispatch?: CommonsCrewDispatchState | null;
 }
+
+export type CommonsCrewDispatchState =
+  | { status: "awaiting_decision"; approval_id: string; proposal_id: string; run_id: string; proposed_at: string }
+  | { status: "approved"; child_run_id: string; layer: string; decided_at: string; decided_by: string }
+  | { status: "denied"; decided_at: string; decided_by: string }
+  | { status: "unavailable"; reason: string; attempted_at: string };
 
 export interface BoardRoadmapPhase {
   name: string;
