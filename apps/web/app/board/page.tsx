@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, apiPost, apiPatch, relativeTime, humanize } from "../../lib/api";
 
+type CommonsCrewDispatchState =
+  | { status: "awaiting_decision"; approval_id: string; proposal_id: string; run_id: string; proposed_at: string }
+  | { status: "approved"; child_run_id: string; layer: string; decided_at: string; decided_by: string }
+  | { status: "denied"; decided_at: string; decided_by: string }
+  | { status: "unavailable"; reason: string; attempted_at: string };
+
 type BoardRequest = {
   id: string;
   title: string;
@@ -15,6 +21,7 @@ type BoardRequest = {
   approval_required: boolean;
   created_at: string;
   updated_at: string;
+  commons_crew_dispatch?: CommonsCrewDispatchState | null;
 };
 
 type CadenceBrief = {
@@ -61,6 +68,20 @@ export default function BoardPage() {
   async function transitionRequest(id: string, status: string) {
     setActing(id + ":" + status);
     await apiPatch(`/api/v1/board/requests/${id}`, { status });
+    setActing(null);
+    load();
+  }
+
+  async function proposeDispatch(id: string) {
+    setActing(id + ":dispatch-propose");
+    await apiPost(`/api/v1/board/requests/${id}/dispatch-to-commons-crew`, {});
+    setActing(null);
+    load();
+  }
+
+  async function decideDispatch(id: string, decision: "approved" | "denied") {
+    setActing(id + ":dispatch-" + decision);
+    await apiPost(`/api/v1/board/requests/${id}/dispatch-to-commons-crew/decision`, { decision });
     setActing(null);
     load();
   }
@@ -132,6 +153,46 @@ export default function BoardPage() {
                 <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
                   <div style={{ background: "var(--surface-overlay)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "14px", fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)" }}>
                     {r.request}
+                  </div>
+                  <div onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>commons-crew dispatch</span>
+                    {!r.commons_crew_dispatch && (
+                      <button
+                        onClick={() => proposeDispatch(r.id)}
+                        disabled={acting !== null}
+                        style={{ background: "none", color: "var(--brand)", padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: "var(--radius)", border: "1px solid var(--brand)", cursor: "pointer", opacity: acting !== null ? 0.6 : 1 }}
+                      >
+                        {acting === r.id + ":dispatch-propose" ? "Proposing…" : "Propose dispatch to chair"}
+                      </button>
+                    )}
+                    {r.commons_crew_dispatch?.status === "unavailable" && (
+                      <span style={{ fontSize: 12, color: "#dc2626" }}>Unavailable: {r.commons_crew_dispatch.reason}</span>
+                    )}
+                    {r.commons_crew_dispatch?.status === "awaiting_decision" && (
+                      <>
+                        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Proposed {relativeTime(r.commons_crew_dispatch.proposed_at)} — awaiting decision</span>
+                        <button
+                          onClick={() => decideDispatch(r.id, "approved")}
+                          disabled={acting !== null}
+                          style={{ background: "#16a34a", color: "#fff", padding: "5px 14px", fontSize: 12, fontWeight: 700, borderRadius: "var(--radius)", border: "none", cursor: "pointer", opacity: acting !== null ? 0.6 : 1 }}
+                        >
+                          {acting === r.id + ":dispatch-approved" ? "Approving…" : "Approve dispatch"}
+                        </button>
+                        <button
+                          onClick={() => decideDispatch(r.id, "denied")}
+                          disabled={acting !== null}
+                          style={{ background: "none", color: "#dc2626", padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: "var(--radius)", border: "1px solid #dc2626", cursor: "pointer", opacity: acting !== null ? 0.6 : 1 }}
+                        >
+                          {acting === r.id + ":dispatch-denied" ? "Denying…" : "Deny dispatch"}
+                        </button>
+                      </>
+                    )}
+                    {r.commons_crew_dispatch?.status === "approved" && (
+                      <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Approved {relativeTime(r.commons_crew_dispatch.decided_at)} — delegated to run {r.commons_crew_dispatch.child_run_id.slice(0, 8)}</span>
+                    )}
+                    {r.commons_crew_dispatch?.status === "denied" && (
+                      <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Denied {relativeTime(r.commons_crew_dispatch.decided_at)}</span>
+                    )}
                   </div>
                   {!["completed", "rejected"].includes(r.status) && (
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} onClick={e => e.stopPropagation()}>
