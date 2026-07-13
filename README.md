@@ -35,43 +35,49 @@ execution, staffed by specialists defined in
 > explicit approve → real delegated child run, and propose → explicit deny
 > → no execution. The deciding admin is a real commons-crew identity, not a
 > shared placeholder: `ensureBoardMemberIdentity` bridges a commons-board
-> admin into commons-crew's own user/membership system on first use (reusing
-> its existing `POST /api/users` / `POST /api/workspaces/:id/memberships`,
-> no new commons-crew capability needed), falling back to commons-crew's
-> seeded `user_primary` only if the bridge itself can't run.
+> admin into commons-crew's own user/membership system on first use (one
+> real user + a "supporting" membership with the `approval_decision`
+> permission, namespaced by org so two orgs' same user id can't collide),
+> reusing commons-crew's existing `POST /api/users` /
+> `POST /api/workspaces/:id/memberships` — no new commons-crew capability
+> needed. Falls back to commons-crew's seeded `user_primary` only if the
+> bridge itself can't run, never blocking the decision on identity-bridging
+> trouble. Live-verified: the bridged identity actually deciding a real
+> approval, not just existing as a record. The dispatch UI itself — propose,
+> approve, deny, per request — lives in the board request's expanded row in
+> `apps/web`, not just the raw API.
 >
-> A request can also opt in (`auto_dispatch_to_commons_crew: true` at
-> creation) to propose that dispatch automatically the moment its status
-> transitions to `"approved"` — proposing is still the only automatic part,
-> the decision stays a separate explicit step either way. Requests that
-> don't opt in are unaffected; whether every approved request should go
-> through commons-crew instead of (or alongside) the existing direct-LLM
-> `chair-reasoning.ts` path is a real product decision this doesn't make
-> unilaterally.
+> A request can also opt in (a checkbox in that same expanded row,
+> `auto_dispatch_to_commons_crew: true`) to propose that dispatch
+> automatically the moment its status transitions to `"approved"` —
+> proposing is still the only automatic part, the decision stays a separate
+> explicit step either way. Requests that don't opt in are unaffected;
+> whether every approved request should go through commons-crew instead of
+> (or alongside) the existing direct-LLM `chair-reasoning.ts` path is a real
+> product decision this doesn't make unilaterally.
 >
 > commons-board also now reads its addin catalog from
 > [artifact-commons](https://github.com/Open-Labor-Foundation/artifact-commons)
 > by default, and commons-crew can search it as a governed
-> `search_artifacts` tool — though nothing calls that tool on its own
-> initiative either, for the same underlying reason the dispatch decision
-> stays manual: commons-crew has no autonomous tool-selection loop at all,
-> so sequencing which tool gets proposed is inherently a caller's choice,
-> not something either repo can force from inside.
+> `search_artifacts` tool — including on its own initiative now, mid-task,
+> via commons-crew's autonomous tool-selection loop (see commons-crew's own
+> `docs/architecture.md` for what that does and doesn't cover yet).
 >
-> labor-commons also has a real practitioner-correction path now:
-> `POST /api/v1/org/specialist-corrections` takes a field-level correction
-> (which spec, which field, the proposed value, and why) and opens a real
-> PR against labor-commons — it never merges anything itself; the PR goes
+> labor-commons also has a real practitioner-correction path now, with a
+> real UI: the org roster page has a form, populated from each chair's
+> actual assigned specialists, that submits to
+> `POST /api/v1/org/specialist-corrections` — a field-level correction
+> (which spec, which field, the proposed value, and why) that opens a real
+> PR against labor-commons. It never merges anything itself; the PR goes
 > through the same certification gate and independent review as any other
-> catalog change (see `GOVERNANCE.md`). Uses an isolated `git worktree` per
-> correction rather than the shared checkout every read in this service
-> uses, specifically so a correction in flight can never make a concurrent
-> read see the wrong content. Verified with real git operations (a local
-> bare repo standing in for the GitHub remote) proving the pushed branch
-> has the exact field changed and everything else in the document
-> untouched — not run against the real labor-commons repo, since the
-> hermetic test already proves the mechanism with no benefit to also
-> polluting a public repo with throwaway verification content.
+> catalog change (see `GOVERNANCE.md` — the gate itself isn't built yet).
+> Uses an isolated `git worktree` per correction rather than the shared
+> checkout every read in this service uses, specifically so a correction in
+> flight can never make a concurrent read see the wrong content, and
+> validates `section_slug`/`agent_slug` against the real catalog-slug shape
+> before they reach any path construction — an independent review caught
+> that neither was validated at all in an earlier version of this change,
+> a real path-traversal issue, not a theoretical one.
 
 ## The governed hierarchy
 
