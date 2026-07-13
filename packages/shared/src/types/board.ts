@@ -52,6 +52,20 @@ export interface BoardRequestRecord {
   updated_at: string;
   /** Set once a delegate_to_child proposal is proposed against the target chair's commons-crew run; null until a dispatch is attempted. */
   commons_crew_dispatch?: CommonsCrewDispatchState | null;
+  /**
+   * Explicit per-request opt-in: propose a commons-crew dispatch
+   * automatically when this request's status transitions to "approved",
+   * instead of requiring an admin/operator to trigger
+   * POST .../dispatch-to-commons-crew manually. Defaults to false --
+   * whether every approved request should go through commons-crew instead
+   * of (or alongside) the existing direct-LLM chair-reasoning path is a
+   * product decision this field doesn't make; it only makes the choice
+   * available per request rather than changing default behavior for
+   * requests that don't ask for it. Proposing is still the only automatic
+   * part -- actually approving and executing the dispatch still requires
+   * the separate, explicit POST .../dispatch-to-commons-crew/decision.
+   */
+  auto_dispatch_to_commons_crew?: boolean;
 }
 
 export type CommonsCrewDispatchState =

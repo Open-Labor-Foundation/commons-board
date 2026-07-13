@@ -33,22 +33,32 @@ execution, staffed by specialists defined in
 > default, so nothing auto-approves a real-world-impact action on a human's
 > behalf. Verified end to end against real running servers: propose →
 > explicit approve → real delegated child run, and propose → explicit deny
-> → no execution. One known limitation: commons-crew's approval endpoint
-> checks workspace membership against its own seeded identity
-> (`user_primary`) — there's no actor-identity bridge yet between
-> commons-board's per-org users and commons-crew's workspace members, so the
-> real deciding admin is recorded faithfully in commons-board's own audit
-> log but not (yet) forwarded as commons-crew's actor of record.
+> → no execution. The deciding admin is a real commons-crew identity, not a
+> shared placeholder: `ensureBoardMemberIdentity` bridges a commons-board
+> admin into commons-crew's own user/membership system on first use (reusing
+> its existing `POST /api/users` / `POST /api/workspaces/:id/memberships`,
+> no new commons-crew capability needed), falling back to commons-crew's
+> seeded `user_primary` only if the bridge itself can't run.
 >
-> What's still open: this dispatch mechanism exists but nothing in
-> commons-board's normal request lifecycle calls it automatically yet — an
-> admin/operator has to trigger it explicitly per request. Wiring it into
-> the default board-request flow (and reconciling it with the existing
-> direct-LLM chair-reasoning path in `chair-reasoning.ts`, which this does
-> not touch or replace) is a deliberate, separate decision, not made here.
-> commons-board can currently determine what should happen about a gap but
-> has no way to close one that doesn't already exist as a capability — that
-> depends on the forthcoming `artifact-commons` repo, not built yet.
+> Proposing no longer requires a manual trigger either, if a request opts
+> in: `auto_dispatch_to_commons_crew: true` at request creation
+> automatically proposes a dispatch the moment that request's status
+> transitions to `"approved"` — proposing is still the only automatic part,
+> the actual decision stays a separate explicit step regardless of how the
+> proposal got triggered. Requests that don't opt in behave exactly as
+> before; this doesn't change default behavior, since whether every
+> approved request should go through commons-crew instead of (or alongside)
+> the existing direct-LLM `chair-reasoning.ts` path is a deliberate product
+> decision this doesn't make on its own.
+>
+> commons-board also now reads its addin catalog from
+> [artifact-commons](https://github.com/Open-Labor-Foundation/artifact-commons)
+> by default, and commons-crew can search it as a governed
+> `search_artifacts` tool — though nothing calls that tool automatically
+> either, and for the same underlying reason as the dispatch decision
+> staying manual: commons-crew has no autonomous tool-selection loop at
+> all, so "search before build" has to be a caller's own choice, not
+> something either repo can force from inside.
 
 ## The governed hierarchy
 
