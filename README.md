@@ -13,20 +13,22 @@ execution, staffed by specialists defined in
 > **Known shortcomings:** see [open-labor-foundation/ARCHITECTURE.md](https://github.com/Open-Labor-Foundation/open-labor-foundation/blob/main/ARCHITECTURE.md)
 > for the full ecosystem picture. commons-board is meant to be governance
 > wrapped around a collection of commons-crew instances — every chair should
-> be a top-level commons-crew instance, not separately staffed. Today it
-> resolves specialists on its own directly against labor-commons, which only
-> reaches the chair-level slice of the catalog and duplicates what should be
-> commons-crew's job. commons-crew now supports recursive delegation and
-> chair registration (`pa.createChairRun`) — built, tested, merged — but
-> nothing in commons-board calls it yet; that resolver should retire in
-> favor of it. Separately, and independent of that fix: even a correct
-> resolver is currently searching the wrong part of the catalog for a chair
-> — labor-commons only has industry-vertical specialists today
-> (`naics-overlays`), not the generic corporate-function specialists
-> (`function-overlays`, planned, not yet migrated) a chair actually needs.
-> commons-board can currently determine what should happen about a gap but
-> has no way to close one that doesn't already exist as a capability — that
-> depends on the forthcoming `artifact-commons` repo, not built yet.
+> be a top-level commons-crew instance, not separately staffed. That's now
+> true at the identity level: every chair is registered as a real
+> commons-crew run at onboarding (`pa.createChairRun` via commons-crew's
+> `POST /api/chairs`), giving it an audit trail, autonomy tiers, and
+> `delegate_to_child` capability from the moment it's created. Specialist
+> *preview* — which specialist gets pinned to a chair for a human to review
+> — still runs through commons-board's own labor-commons search, now
+> correctly covering both catalog axes (`naics-overlays` and
+> `function-overlays`, migrated). What's still open: a chair's registered
+> commons-crew run isn't wired to anything yet — actually routing day-to-day
+> task execution through it, so `delegate_to_child` chains reach the
+> line-level catalog (director → department → worker), is a distinct,
+> larger integration not started. commons-board can currently determine
+> what should happen about a gap but has no way to close one that doesn't
+> already exist as a capability — that depends on the forthcoming
+> `artifact-commons` repo, not built yet.
 
 ## The governed hierarchy
 

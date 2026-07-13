@@ -2,6 +2,20 @@ import { CURRENT_ARTIFACT_SCHEMA_VERSION } from "@commons-board/shared";
 import type { GovernanceModeValue, InterviewAnswers, InterviewArtifacts, MemberRole } from "./types.js";
 import { searchBySections, getSpecialist } from "../../lib/labor-commons-client.js";
 import { completeText } from "../../lib/model-client.js";
+import { registerChair, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
+
+// commons-board's onboarding always produces exactly these seven ui_domain
+// values (see CHAIR_CONTEXT_SYSTEM below and its guaranteed-domain fallback
+// list) -- this maps each onto commons-crew's fixed v1 CHAIR_ROLES set.
+export const UI_DOMAIN_TO_CHAIR_ROLE: Record<string, CommonsCrewChairRole> = {
+  finance: "finance",
+  ops: "operations",
+  hr: "hr",
+  growth: "marketing",
+  legal: "legal",
+  it: "it",
+  security: "security",
+};
 
 function def<T>(value: T | undefined, fallback: T): T {
   return value === undefined ? fallback : value;
@@ -262,7 +276,8 @@ function approvalKeysForDomain(uiDomain: string): string[] {
 }
 
 async function buildBlueprintChairs(
-  selections: WorkerSelection[]
+  selections: WorkerSelection[],
+  orgContext: string
 ): Promise<Array<{
   chair_id: string;
   name: string;
@@ -272,6 +287,8 @@ async function buildBlueprintChairs(
   scope: { owns: string[]; refuses: string[]; escalates_to: string[] };
   worker_agents: Array<{ agent_id: string; name: string; labor_commons_ref: string | null; task_scope: string[] }>;
   approval_required_for: string[];
+  commons_crew_run_id: string | null;
+  commons_crew_session_id: string | null;
 }>> {
   const allChairNames = selections.map(s => s.chair.name);
 
@@ -317,6 +334,15 @@ async function buildBlueprintChairs(
       owns.push(chair.function);
     }
 
+    // Register this chair as a real commons-crew run -- governance identity
+    // (audit trail, autonomy tiers, delegate_to_child capability), separate
+    // from the specialist preview picked above. Non-fatal: commons-crew
+    // isn't guaranteed to be deployed alongside every commons-board instance.
+    const chairRole = UI_DOMAIN_TO_CHAIR_ROLE[chair.ui_domain];
+    const registered = chairRole
+      ? await registerChair({ orgContext, chairRole, surface: "web", title: chair.name })
+      : null;
+
     return {
       chair_id,
       name: chair.name,
@@ -326,6 +352,8 @@ async function buildBlueprintChairs(
       scope: { owns, refuses: refuses.slice(0, 10), escalates_to },
       worker_agents,
       approval_required_for: approvalKeysForDomain(chair.ui_domain),
+      commons_crew_run_id: registered?.runId ?? null,
+      commons_crew_session_id: registered?.sessionId ?? null,
     };
   }));
 }
@@ -347,7 +375,8 @@ async function buildAgentBlueprint(
   );
 
   // Step 3: Assemble with governance from specs
-  const chairs = await buildBlueprintChairs(selections);
+  const orgContext = answers.S1?.org_name ?? orgId;
+  const chairs = await buildBlueprintChairs(selections, orgContext);
   return { chairs };
 }
 

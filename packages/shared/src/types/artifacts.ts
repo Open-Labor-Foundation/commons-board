@@ -169,6 +169,9 @@ export interface AgentBlueprint {
     };
     /** Per-chair model override for reasoning calls. Falls back to provider default. */
     model?: string;
+    /** The commons-crew run/session registered for this chair via pa.createChairRun, null if commons-crew wasn't reachable at onboarding. */
+    commons_crew_run_id?: string | null;
+    commons_crew_session_id?: string | null;
   }>;
   /** Model used for board synthesis (merging chair results). Falls back to provider default. */
   synthesis_model?: string;
