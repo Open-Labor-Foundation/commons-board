@@ -1,7 +1,7 @@
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import { proposeDispatchToChair, submitDispatchDecision, ensureBoardMemberIdentity } from "../lib/commons-crew-client.js";
+import { proposeDispatchToChair, submitDispatchDecision, ensureBoardMemberIdentity, sanitizeForLog } from "../lib/commons-crew-client.js";
 
 /**
  * The core safety property under test: proposeDispatchToChair must NEVER
@@ -246,5 +246,24 @@ describe("commons-crew-client dispatch (propose + decision)", () => {
 
     const hitExecute = requestLog.some((r) => /\/api\/actions\/.+\/execute/.test(r.url));
     assert.equal(hitExecute, false, "a denied decision must never execute");
+  });
+});
+
+// CodeQL flagged ensureBoardMemberIdentity's console.error calls: orgContext/
+// userId come from client-supplied request headers, not a server-verified
+// session, and flowed unsanitized into log messages -- a crafted value could
+// forge or split a log line. sanitizeForLog is the fix; these prove it
+// actually strips the characters that make that possible.
+describe("sanitizeForLog", () => {
+  test("strips newlines that could forge a fake log line", () => {
+    assert.equal(sanitizeForLog("acme:user\n[commons-crew-client] fake success line"), "acme:user[commons-crew-client] fake success line");
+  });
+
+  test("strips carriage returns and other control characters", () => {
+    assert.equal(sanitizeForLog("a\r\nb\x00c\x1bd\x7fe"), "abcde");
+  });
+
+  test("leaves an ordinary value unchanged", () => {
+    assert.equal(sanitizeForLog("acme:user-42@commons-board.local"), "acme:user-42@commons-board.local");
   });
 });

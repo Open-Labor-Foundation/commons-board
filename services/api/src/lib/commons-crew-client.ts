@@ -169,6 +169,17 @@ export async function proposeDispatchToChair(input: ProposeDispatchInput): Promi
 // when the real bridge below can't run, not the intended steady state.
 const COMMONS_CREW_FALLBACK_ACTOR = "user_primary";
 
+// orgContext/userId (and emailOrLogin, built from them) originate from
+// client-supplied request headers (x-workspace-id/x-user-id), not a
+// server-verified session -- CodeQL correctly flags them as tainted before
+// they reach console.error. Strip control characters (newlines especially)
+// before logging so a crafted header can't forge or split log lines; this
+// is a log-forging concern specifically, not a path/command injection risk,
+// since nothing here reaches a filesystem or shell call.
+export function sanitizeForLog(value: string): string {
+  return value.replace(/[\x00-\x1f\x7f]/g, "");
+}
+
 /**
  * Bridges a real commons-board admin into commons-crew's own user/
  * membership system, rather than always deciding as the seeded
@@ -194,6 +205,10 @@ export async function ensureBoardMemberIdentity(input: { orgContext: string; use
   const { url, headers } = config;
   const emailOrLogin = `${input.orgContext}:${input.userId}@commons-board.local`.toLowerCase();
   const displayName = input.displayName?.trim() || input.userId;
+  // Sanitized copy for logging only -- the real emailOrLogin above is used
+  // for every actual lookup/API call unchanged, this is purely to keep a
+  // crafted orgContext/userId from forging or splitting a log line.
+  const safeEmailOrLogin = sanitizeForLog(emailOrLogin);
 
   try {
     const workspaceResp = await fetch(`${url}/api/workspace`, { headers });
@@ -221,7 +236,7 @@ export async function ensureBoardMemberIdentity(input: { orgContext: string; use
         userId = retried.users.find((u) => u.emailOrLogin.toLowerCase() === emailOrLogin)?.id ?? null;
         if (!userId) return null;
       } else if (!createResp.ok) {
-        console.error(`[commons-crew-client] identity bridge: could not create user for ${emailOrLogin} (${createResp.status})`);
+        console.error(`[commons-crew-client] identity bridge: could not create user for ${safeEmailOrLogin} (${createResp.status})`);
         return null;
       } else {
         const created = (await createResp.json()) as { user: { id: string } };
@@ -245,14 +260,14 @@ export async function ensureBoardMemberIdentity(input: { orgContext: string; use
       // added it between our check and this call. Anything else is a real
       // failure the caller should fall back on.
       if (!membershipResp.ok && membershipResp.status !== 409) {
-        console.error(`[commons-crew-client] identity bridge: could not add membership for ${emailOrLogin} (${membershipResp.status})`);
+        console.error(`[commons-crew-client] identity bridge: could not add membership for ${safeEmailOrLogin} (${membershipResp.status})`);
         return null;
       }
     }
 
     return userId;
   } catch (err) {
-    console.error(`[commons-crew-client] identity bridge errored for ${emailOrLogin}:`, err instanceof Error ? err.message : err);
+    console.error(`[commons-crew-client] identity bridge errored for ${safeEmailOrLogin}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
