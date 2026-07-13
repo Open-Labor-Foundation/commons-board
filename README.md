@@ -33,22 +33,45 @@ execution, staffed by specialists defined in
 > default, so nothing auto-approves a real-world-impact action on a human's
 > behalf. Verified end to end against real running servers: propose →
 > explicit approve → real delegated child run, and propose → explicit deny
-> → no execution. One known limitation: commons-crew's approval endpoint
-> checks workspace membership against its own seeded identity
-> (`user_primary`) — there's no actor-identity bridge yet between
-> commons-board's per-org users and commons-crew's workspace members, so the
-> real deciding admin is recorded faithfully in commons-board's own audit
-> log but not (yet) forwarded as commons-crew's actor of record.
+> → no execution. The deciding admin is a real commons-crew identity, not a
+> shared placeholder: `ensureBoardMemberIdentity` bridges a commons-board
+> admin into commons-crew's own user/membership system on first use (reusing
+> its existing `POST /api/users` / `POST /api/workspaces/:id/memberships`,
+> no new commons-crew capability needed), falling back to commons-crew's
+> seeded `user_primary` only if the bridge itself can't run.
 >
-> What's still open: this dispatch mechanism exists but nothing in
-> commons-board's normal request lifecycle calls it automatically yet — an
-> admin/operator has to trigger it explicitly per request. Wiring it into
-> the default board-request flow (and reconciling it with the existing
-> direct-LLM chair-reasoning path in `chair-reasoning.ts`, which this does
-> not touch or replace) is a deliberate, separate decision, not made here.
-> commons-board can currently determine what should happen about a gap but
-> has no way to close one that doesn't already exist as a capability — that
-> depends on the forthcoming `artifact-commons` repo, not built yet.
+> A request can also opt in (`auto_dispatch_to_commons_crew: true` at
+> creation) to propose that dispatch automatically the moment its status
+> transitions to `"approved"` — proposing is still the only automatic part,
+> the decision stays a separate explicit step either way. Requests that
+> don't opt in are unaffected; whether every approved request should go
+> through commons-crew instead of (or alongside) the existing direct-LLM
+> `chair-reasoning.ts` path is a real product decision this doesn't make
+> unilaterally.
+>
+> commons-board also now reads its addin catalog from
+> [artifact-commons](https://github.com/Open-Labor-Foundation/artifact-commons)
+> by default, and commons-crew can search it as a governed
+> `search_artifacts` tool — though nothing calls that tool on its own
+> initiative either, for the same underlying reason the dispatch decision
+> stays manual: commons-crew has no autonomous tool-selection loop at all,
+> so sequencing which tool gets proposed is inherently a caller's choice,
+> not something either repo can force from inside.
+>
+> labor-commons also has a real practitioner-correction path now:
+> `POST /api/v1/org/specialist-corrections` takes a field-level correction
+> (which spec, which field, the proposed value, and why) and opens a real
+> PR against labor-commons — it never merges anything itself; the PR goes
+> through the same certification gate and independent review as any other
+> catalog change (see `GOVERNANCE.md`). Uses an isolated `git worktree` per
+> correction rather than the shared checkout every read in this service
+> uses, specifically so a correction in flight can never make a concurrent
+> read see the wrong content. Verified with real git operations (a local
+> bare repo standing in for the GitHub remote) proving the pushed branch
+> has the exact field changed and everything else in the document
+> untouched — not run against the real labor-commons repo, since the
+> hermetic test already proves the mechanism with no benefit to also
+> polluting a public repo with throwaway verification content.
 
 ## The governed hierarchy
 
