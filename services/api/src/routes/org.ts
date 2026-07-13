@@ -18,7 +18,7 @@ import { requireContext, requireRole } from "../lib/auth.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { resolveAllChairs, applyResolutionsToBlueprint, type BlueprintResolution } from "../services/specialist-resolver.js";
-import { loadGaps, updateGap, reportGap } from "../lib/labor-commons-client.js";
+import { loadGaps, updateGap, reportGap, isValidCatalogSlug } from "../lib/labor-commons-client.js";
 import { proposeSpecCorrection } from "../lib/labor-commons-correction.js";
 import { runCatalogSync } from "../workers/catalog-sync.js";
 
@@ -358,6 +358,14 @@ orgRouter.post("/specialist-corrections", requireRole(["admin", "operator", "mem
 
   if (!body.section_slug || !body.agent_slug || !Array.isArray(body.field_path) || body.field_path.length === 0) {
     res.status(400).json({ error: "section_slug, agent_slug, and a non-empty field_path are required" });
+    return;
+  }
+  // section_slug/agent_slug flow into filesystem path construction and a git
+  // branch/commit downstream (labor-commons-correction.ts) -- reject
+  // anything that isn't a real catalog slug shape before it gets there,
+  // rather than relying solely on that module's own defense-in-depth check.
+  if (!isValidCatalogSlug(body.section_slug) || !isValidCatalogSlug(body.agent_slug)) {
+    res.status(400).json({ error: "section_slug and agent_slug must be lowercase alphanumeric segments joined by hyphens, matching a real catalog slug" });
     return;
   }
   if (!body.proposed_value?.trim() || !body.justification?.trim()) {
