@@ -68,6 +68,8 @@
           },
           "approval_required_for": { "type": "array", "items": { "type": "string" } },
           "model": { "type": "string" },
+          "commons_crew_run_id": { "type": ["string", "null"] },
+          "commons_crew_session_id": { "type": ["string", "null"] },
           "catalog_gap": {
             "type": "object",
             "additionalProperties": false,
