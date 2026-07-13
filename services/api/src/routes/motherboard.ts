@@ -358,6 +358,7 @@ motherboardRouter.post("/requests/:id/dispatch-to-commons-crew/decision", requir
     runId: dispatch.run_id,
     decision: body.decision,
     actorUserId: ctx.userId,
+    orgContext: ctx.workspaceId,
     comment: body.comment
   });
 

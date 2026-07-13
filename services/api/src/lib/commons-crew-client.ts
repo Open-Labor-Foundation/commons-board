@@ -162,6 +162,101 @@ export async function proposeDispatchToChair(input: ProposeDispatchInput): Promi
   }
 }
 
+// commons-crew's own approval endpoint checks that the deciding actor is a
+// real member of *its* workspace (workspace_membership_required, then
+// requires the "approval_decision" permission specifically). "user_primary"
+// is the one member commons-crew's default state seeds -- it's the fallback
+// when the real bridge below can't run, not the intended steady state.
+const COMMONS_CREW_FALLBACK_ACTOR = "user_primary";
+
+/**
+ * Bridges a real commons-board admin into commons-crew's own user/
+ * membership system, rather than always deciding as the seeded
+ * "user_primary". commons-crew already has the infrastructure this needs --
+ * POST /api/users, POST /api/workspaces/:id/memberships with an
+ * "approval_decision" permission a "supporting" member can hold -- so this
+ * is a client-side bridge, not a new commons-crew capability.
+ *
+ * emailOrLogin is deterministic and namespaced by orgContext (not just the
+ * board user id) because a single commons-crew deployment could plausibly
+ * be shared across multiple commons-board orgs, and board user ids are only
+ * unique within one org.
+ *
+ * Idempotent: looks up the workspace's existing users/memberships first via
+ * GET /api/workspace (no workspace id needed to discover it) and only
+ * creates what's missing. Returns null on any failure so the caller can
+ * fall back to COMMONS_CREW_FALLBACK_ACTOR rather than block a decision
+ * on identity-bridging trouble.
+ */
+export async function ensureBoardMemberIdentity(input: { orgContext: string; userId: string; displayName?: string }): Promise<string | null> {
+  const config = commonsCrewConfig();
+  if (!config) return null;
+  const { url, headers } = config;
+  const emailOrLogin = `${input.orgContext}:${input.userId}@commons-board.local`.toLowerCase();
+  const displayName = input.displayName?.trim() || input.userId;
+
+  try {
+    const workspaceResp = await fetch(`${url}/api/workspace`, { headers });
+    if (!workspaceResp.ok) return null;
+    const workspace = (await workspaceResp.json()) as {
+      workspace: { id: string };
+      users: Array<{ id: string; emailOrLogin: string }>;
+      memberships: Array<{ userId: string; status: string }>;
+    };
+
+    let userId = workspace.users.find((u) => u.emailOrLogin.toLowerCase() === emailOrLogin)?.id ?? null;
+
+    if (!userId) {
+      const createResp = await fetch(`${url}/api/users`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ emailOrLogin, displayName, role: "supporting" })
+      });
+      if (createResp.status === 409) {
+        // Lost a race with another request creating the same user between
+        // our lookup and this call -- re-fetch rather than fail.
+        const retryResp = await fetch(`${url}/api/workspace`, { headers });
+        if (!retryResp.ok) return null;
+        const retried = (await retryResp.json()) as typeof workspace;
+        userId = retried.users.find((u) => u.emailOrLogin.toLowerCase() === emailOrLogin)?.id ?? null;
+        if (!userId) return null;
+      } else if (!createResp.ok) {
+        console.error(`[commons-crew-client] identity bridge: could not create user for ${emailOrLogin} (${createResp.status})`);
+        return null;
+      } else {
+        const created = (await createResp.json()) as { user: { id: string } };
+        userId = created.user.id;
+      }
+    }
+
+    const hasActiveMembership = workspace.memberships.some((m) => m.userId === userId && m.status === "active");
+    if (!hasActiveMembership) {
+      const membershipResp = await fetch(`${url}/api/workspaces/${workspace.workspace.id}/memberships`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          userId,
+          actorUserId: COMMONS_CREW_FALLBACK_ACTOR,
+          role: "supporting",
+          permissions: ["approval_decision"]
+        })
+      });
+      // 409 workspace_membership_exists is fine -- another request already
+      // added it between our check and this call. Anything else is a real
+      // failure the caller should fall back on.
+      if (!membershipResp.ok && membershipResp.status !== 409) {
+        console.error(`[commons-crew-client] identity bridge: could not add membership for ${emailOrLogin} (${membershipResp.status})`);
+        return null;
+      }
+    }
+
+    return userId;
+  } catch (err) {
+    console.error(`[commons-crew-client] identity bridge errored for ${emailOrLogin}:`, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 /**
  * Forwards an EXPLICIT human decision (from an authenticated admin/operator
  * caller -- see routes/motherboard.ts's requireRole gate) to commons-crew's
@@ -176,6 +271,7 @@ export interface SubmitDispatchDecisionInput {
   runId: string;
   decision: "approved" | "denied";
   actorUserId: string;
+  orgContext: string;
   comment?: string;
 }
 
@@ -185,29 +281,19 @@ export interface DispatchResult {
   layer: string | null;
 }
 
-// commons-crew's own approval endpoint checks that the deciding actor is a
-// real member of *its* workspace (workspace_membership_required) -- it has
-// no concept of commons-board's org/user identities, and there's no actor-
-// identity bridge between the two systems yet. "user_primary" is the one
-// member commons-crew's default single-tenant workspace state seeds, so
-// that's what's sent on the wire; input.actorUserId is still the real
-// commons-board admin who decided, recorded faithfully in commons-board's
-// own GovernanceEvent audit log by the caller (see routes/motherboard.ts) --
-// it's just not (yet) forwarded as commons-crew's actor of record. Bridging
-// real per-org identity into commons-crew's workspace-membership model is a
-// distinct, not-yet-built piece of cross-repo identity work.
-const COMMONS_CREW_DEFAULT_ACTOR = "user_primary";
-
 export async function submitDispatchDecision(input: SubmitDispatchDecisionInput): Promise<DispatchResult | null> {
   const config = commonsCrewConfig();
   if (!config) return null;
   const { url, headers } = config;
 
+  const bridgedActor = await ensureBoardMemberIdentity({ orgContext: input.orgContext, userId: input.actorUserId });
+  const decidingActor = bridgedActor ?? COMMONS_CREW_FALLBACK_ACTOR;
+
   try {
     const decisionResp = await fetch(`${url}/api/approvals/${input.approvalId}/decision`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ decision: input.decision, comment: input.comment ?? "Decided via commons-board.", actorUserId: COMMONS_CREW_DEFAULT_ACTOR })
+      body: JSON.stringify({ decision: input.decision, comment: input.comment ?? "Decided via commons-board.", actorUserId: decidingActor })
     });
     if (!decisionResp.ok) {
       console.error(`[commons-crew-client] decision failed: could not record ${input.decision} for approval ${input.approvalId} (${decisionResp.status})`);

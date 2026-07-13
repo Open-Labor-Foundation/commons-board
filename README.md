@@ -33,22 +33,39 @@ execution, staffed by specialists defined in
 > default, so nothing auto-approves a real-world-impact action on a human's
 > behalf. Verified end to end against real running servers: propose →
 > explicit approve → real delegated child run, and propose → explicit deny
-> → no execution. One known limitation: commons-crew's approval endpoint
-> checks workspace membership against its own seeded identity
-> (`user_primary`) — there's no actor-identity bridge yet between
-> commons-board's per-org users and commons-crew's workspace members, so the
-> real deciding admin is recorded faithfully in commons-board's own audit
-> log but not (yet) forwarded as commons-crew's actor of record.
+> → no execution.
 >
-> What's still open: this dispatch mechanism exists but nothing in
+> The deciding admin is a real commons-crew identity now, not a shared
+> placeholder: `ensureBoardMemberIdentity` bridges a commons-board admin
+> into commons-crew's own user/membership system on first use (one real
+> user + a "supporting" membership with the `approval_decision` permission,
+> namespaced by org so two orgs' same user id can't collide), reusing
+> commons-crew's existing `POST /api/users` /
+> `POST /api/workspaces/:id/memberships` — no new commons-crew capability
+> needed. Falls back to commons-crew's seeded `user_primary` only if the
+> bridge itself can't run (commons-crew unreachable, etc.), never blocking
+> the decision on identity-bridging trouble. Live-verified: the bridged
+> identity actually deciding a real approval, not just existing as a record.
+>
+> commons-board also now reads its addin catalog from
+> [artifact-commons](https://github.com/Open-Labor-Foundation/artifact-commons)
+> by default (the repo that didn't exist as of the paragraph above being
+> first written), and commons-crew can search it as a governed
+> `search_artifacts` tool.
+>
+> What's still open: the dispatch mechanism exists but nothing in
 > commons-board's normal request lifecycle calls it automatically yet — an
 > admin/operator has to trigger it explicitly per request. Wiring it into
 > the default board-request flow (and reconciling it with the existing
 > direct-LLM chair-reasoning path in `chair-reasoning.ts`, which this does
 > not touch or replace) is a deliberate, separate decision, not made here.
+> Likewise, nothing calls `search_artifacts` before reaching for build
+> capability yet — the tool exists, the "search first" sequencing doesn't.
 > commons-board can currently determine what should happen about a gap but
-> has no way to close one that doesn't already exist as a capability — that
-> depends on the forthcoming `artifact-commons` repo, not built yet.
+> still has no certification gate to trust a match before surfacing it —
+> the model is ratified in
+> [open-labor-foundation/GOVERNANCE.md](https://github.com/Open-Labor-Foundation/open-labor-foundation/blob/main/GOVERNANCE.md),
+> the gate itself isn't built.
 
 ## The governed hierarchy
 
