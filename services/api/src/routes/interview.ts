@@ -22,7 +22,8 @@ import type { InterviewSection, InterviewAnswers } from "../agent-runtime/interv
 import { generateArtifacts } from "../agent-runtime/interview/generate-artifacts.js";
 import { writeArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
 import { requireContext, requireRole } from "../lib/auth.js";
-import { completeText } from "../lib/model-client.js";
+import { completeJsonWithRetry } from "../lib/model-json.js";
+import { sanitizeForLog } from "../lib/commons-crew-client.js";
 
 export const interviewRouter = Router();
 
@@ -162,27 +163,29 @@ const CORRECTIONS_SCHEMA = `{
   "S7"?: { "never_do"?: string[] }
 }`;
 
+function isPlainObject(parsed: unknown): parsed is Partial<InterviewAnswers> {
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+}
+
 /** Interprets a free-text correction against the current review summary. Returns only the sections/fields the user asked to change. */
 async function extractCorrections(
   workspaceId: string,
   currentAnswers: InterviewAnswers,
   message: string
 ): Promise<Partial<InterviewAnswers>> {
+  const system = [
+    "You are updating an onboarding review summary based on a user's correction request.",
+    "Given the CURRENT answers (JSON) and the user's correction message, return ONLY a JSON object",
+    "containing just the sections and fields that need to change, matching this schema:",
+    CORRECTIONS_SCHEMA,
+    "Only include a section if the user is actually asking to change something in it.",
+    "Return {} if the message doesn't map to any known field. No commentary — just JSON.",
+  ].join("\n");
+  const prompt = `CURRENT ANSWERS:\n${JSON.stringify(currentAnswers)}\n\nUSER CORRECTION:\n${message}`;
   try {
-    const system = [
-      "You are updating an onboarding review summary based on a user's correction request.",
-      "Given the CURRENT answers (JSON) and the user's correction message, return ONLY a JSON object",
-      "containing just the sections and fields that need to change, matching this schema:",
-      CORRECTIONS_SCHEMA,
-      "Only include a section if the user is actually asking to change something in it.",
-      "Return {} if the message doesn't map to any known field. No commentary — just JSON.",
-    ].join("\n");
-    const prompt = `CURRENT ANSWERS:\n${JSON.stringify(currentAnswers)}\n\nUSER CORRECTION:\n${message}`;
-    const raw = await completeText(workspaceId, system, prompt, { max_tokens: 500, temperature: 0.1 });
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return {};
-    return JSON.parse(m[0]) as Partial<InterviewAnswers>;
-  } catch {
+    return await completeJsonWithRetry(workspaceId, system, prompt, { max_tokens: 500, temperature: 0.1 }, /\{[\s\S]*\}/, isPlainObject);
+  } catch (err) {
+    console.error(`[interview-corrections] failed for workspace=${sanitizeForLog(workspaceId)}: ${err instanceof Error ? err.message : String(err)}`);
     return {};
   }
 }
@@ -195,21 +198,28 @@ async function extractWithAI<T extends object>(
   message: string,
   fallback: T
 ): Promise<T> {
+  const system = [
+    "You are a structured data extractor for an onboarding interview.",
+    "Extract information from the user response and return ONLY valid JSON matching this schema:",
+    schema,
+    "If information is missing or unclear, use reasonable defaults or null. No commentary — just JSON.",
+  ].join("\n");
   try {
-    const system = [
-      "You are a structured data extractor for an onboarding interview.",
-      "Extract information from the user response and return ONLY valid JSON matching this schema:",
-      schema,
-      "If information is missing or unclear, use reasonable defaults or null. No commentary — just JSON.",
-    ].join("\n");
-    const raw = await completeText(workspaceId, system, `User response: ${message}`, {
-      max_tokens: 512,
-      temperature: 0.1,
-    });
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return fallback;
-    return { ...fallback, ...JSON.parse(m[0]) as T };
-  } catch {
+    const parsed = await completeJsonWithRetry(
+      workspaceId, system, `User response: ${message}`,
+      { max_tokens: 512, temperature: 0.1 },
+      /\{[\s\S]*\}/,
+      isPlainObject
+    );
+    return { ...fallback, ...parsed as Partial<T> };
+  } catch (err) {
+    // Previously silent -- a failed/malformed model response looked
+    // identical to a real, successful extraction that happened to produce
+    // the fallback's own generic values ("My Organization", industry
+    // "general"). Always logged now, so a broken provider key or a
+    // malformed-output run is visible instead of indistinguishable from
+    // real user-provided data.
+    console.error(`[interview-extract] failed for workspace=${sanitizeForLog(workspaceId)}: ${err instanceof Error ? err.message : String(err)}`);
     return fallback;
   }
 }
