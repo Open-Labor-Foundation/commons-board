@@ -2,7 +2,7 @@ import { CURRENT_ARTIFACT_SCHEMA_VERSION } from "@commons-board/shared";
 import type { GovernanceModeValue, InterviewAnswers, InterviewArtifacts, MemberRole } from "./types.js";
 import { searchBySections, getSpecialist } from "../../lib/labor-commons-client.js";
 import { completeText } from "../../lib/model-client.js";
-import { registerChair, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
+import { registerChair, syncOrgAutonomyTier, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
 
 // commons-board's onboarding always produces exactly these seven ui_domain
 // values (see CHAIR_CONTEXT_SYSTEM below and its guaranteed-domain fallback
@@ -376,6 +376,13 @@ async function buildAgentBlueprint(
 
   // Step 3: Assemble with governance from specs
   const orgContext = answers.S1?.org_name ?? orgId;
+
+  // Sync this org's chosen autonomy mode to commons-crew before any chair is
+  // registered below, so a chair's first delegate_to_child proposal already
+  // reflects the org's real setting rather than commons-crew's fail-closed
+  // "advisor" default. Non-fatal: see syncOrgAutonomyTier.
+  await syncOrgAutonomyTier(orgContext, def(answers.S5?.autonomy_mode, "advisor" as const));
+
   const chairs = await buildBlueprintChairs(selections, orgContext);
   return { chairs };
 }

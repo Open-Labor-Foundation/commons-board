@@ -33,6 +33,38 @@ function commonsCrewConfig(): { url: string; headers: Record<string, string> } |
   return { url, headers };
 }
 
+export type OrgAutonomyTier = "advisor" | "orchestrator" | "autopilot";
+
+/**
+ * Syncs this org's autonomy_policy mode to commons-crew's own gating store
+ * (pa.setOrgAutonomyTier, exposed as PUT /api/orgs/:orgContext/autonomy-tier)
+ * so delegate_to_child approval gating for this org's registered chairs
+ * actually reflects the mode the org chose during onboarding, instead of
+ * silently defaulting to "advisor" forever. Non-fatal on any failure, same
+ * reasoning as registerChair -- commons-crew isn't guaranteed reachable, and
+ * a failed sync should never block onboarding.
+ */
+export async function syncOrgAutonomyTier(orgContext: string, tier: OrgAutonomyTier): Promise<boolean> {
+  const config = commonsCrewConfig();
+  if (!config) return false;
+
+  try {
+    const resp = await fetch(`${config.url}/api/orgs/${encodeURIComponent(orgContext)}/autonomy-tier`, {
+      method: "PUT",
+      headers: config.headers,
+      body: JSON.stringify({ tier })
+    });
+    if (!resp.ok) {
+      console.error(`[commons-crew-client] autonomy-tier sync failed (${resp.status}) for org=${orgContext}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`[commons-crew-client] autonomy-tier sync errored for org=${orgContext}:`, err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 export async function registerChair(input: RegisterChairInput): Promise<RegisteredChair | null> {
   const config = commonsCrewConfig();
   if (!config) return null;
