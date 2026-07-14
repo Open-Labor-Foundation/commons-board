@@ -22,6 +22,28 @@ function def<T>(value: T | undefined, fallback: T): T {
   return value === undefined ? fallback : value;
 }
 
+// completeJsonWithRetry's validation only checks structural shape (is this
+// an object, does it have the right field names/array-ness) -- it doesn't
+// deep-check that every field matches the exact JSON Schema type each
+// artifact requires. Caught live: the model returned operating_since as
+// the JSON number 2026 (S1 said "operating since 2026"), which passed
+// extraction and the review step fine, then failed writeArtifact's schema
+// validation at the very last step of a multi-minute generation run --
+// discarding all of it, including the real, successful chair/worker
+// inference calls that had already completed. Coerce at the one point
+// each field actually meets its schema-typed destination, rather than
+// trying to make every extraction schema perfectly self-enforcing.
+function toStringOrNull(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value;
+  return String(value);
+}
+
+function toNonNegativeInt(value: unknown, fallback: number): number {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : fallback;
+}
+
 function riskThreshold(appetite: "low" | "med" | "high" | undefined): number {
   if (appetite === "low") return 40;
   if (appetite === "high") return 80;
@@ -493,7 +515,7 @@ async function buildAgentBlueprint(
 
 // ── Artifact generators ───────────────────────────────────────────────────────
 
-function buildBusinessProfile(answers: InterviewAnswers, orgId: string) {
+export function buildBusinessProfile(answers: InterviewAnswers, orgId: string) {
   const s0 = answers.S0 ?? {};
   const s1 = answers.S1 ?? {};
   const s3 = answers.S3 ?? {};
@@ -505,14 +527,14 @@ function buildBusinessProfile(answers: InterviewAnswers, orgId: string) {
     description: def(s1.description, ""),
     industry: def(s1.industry, "general"),
     primary_domain: def(s1.primary_domain, "ops"),
-    operating_since: def(s1.operating_since, null),
+    operating_since: toStringOrNull(s1.operating_since),
     location: {
       primary: def(s1.location?.primary, ""),
       regions: def(s1.location?.regions, []),
     },
     size: {
-      headcount: def(s1.size?.headcount, 0),
-      member_count: def(s1.size?.member_count, null),
+      headcount: toNonNegativeInt(s1.size?.headcount, 0),
+      member_count: s1.size?.member_count == null ? null : toNonNegativeInt(s1.size.member_count, 0),
     },
     external_systems: def(s3.systems, []),
     created_at: new Date().toISOString(),
