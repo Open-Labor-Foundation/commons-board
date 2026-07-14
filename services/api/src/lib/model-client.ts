@@ -115,10 +115,33 @@ export async function complete(
   const release = await acquireProviderSlot(config.provider_id, maxParallel);
   try {
     const provider = createProvider(config);
-    return await provider.complete(req);
+    let response = await provider.complete(req);
+    // Concurrency=1 plus MIN_CALL_SPACING_MS pacing still wasn't enough
+    // live -- consecutive calls kept coming back HTTP 429 at essentially
+    // the same rate as before either fix, meaning the real constraint is
+    // stricter than a fixed guessed delay (or something outside this
+    // process is also drawing on the same key). Rather than keep
+    // widening a fixed constant, back off and retry specifically on 429
+    // with increasing delay -- this self-adapts to whatever the real
+    // limit turns out to be instead of needing it guessed correctly.
+    // Deliberately holds the concurrency slot for the whole backoff: the
+    // next queued call retrying immediately into the same rate limit
+    // would just fail the same way.
+    for (const delayMs of RATE_LIMIT_BACKOFF_MS) {
+      if (response.ok || !isRateLimitError(response.error)) break;
+      await sleep(delayMs);
+      response = await provider.complete(req);
+    }
+    return response;
   } finally {
     release();
   }
+}
+
+const RATE_LIMIT_BACKOFF_MS = [2000, 4000, 8000, 16000];
+
+function isRateLimitError(error: string | undefined): boolean {
+  return error != null && /\b429\b/.test(error);
 }
 
 /**
