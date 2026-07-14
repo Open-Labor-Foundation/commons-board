@@ -1,8 +1,9 @@
 import { CURRENT_ARTIFACT_SCHEMA_VERSION } from "@commons-board/shared";
 import type { GovernanceModeValue, InterviewAnswers, InterviewArtifacts, MemberRole } from "./types.js";
 import { searchBySections, getSpecialist } from "../../lib/labor-commons-client.js";
-import { completeText, mapConcurrent } from "../../lib/model-client.js";
-import { registerChair, syncOrgAutonomyTier, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
+import { mapConcurrent } from "../../lib/model-client.js";
+import { completeJsonWithRetry } from "../../lib/model-json.js";
+import { registerChair, syncOrgAutonomyTier, sanitizeForLog, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
 
 // commons-board's onboarding always produces exactly these seven ui_domain
 // values (see CHAIR_CONTEXT_SYSTEM below and its guaranteed-domain fallback
@@ -195,6 +196,15 @@ function fallbackChair(uiDomain: string, industry: string): ChairContext {
   };
 }
 
+function isChairContextArray(parsed: unknown): parsed is ChairContext[] {
+  return Array.isArray(parsed) && parsed.length >= 5 && parsed.every(c =>
+    typeof c === "object" && c !== null &&
+    typeof (c as ChairContext).name === "string" &&
+    typeof (c as ChairContext).function === "string" &&
+    typeof (c as ChairContext).ui_domain === "string"
+  );
+}
+
 async function inferChairContexts(
   answers: InterviewAnswers,
   orgId: string
@@ -204,16 +214,13 @@ async function inferChairContexts(
   const prompt = `BUSINESS:\n${orgSummary}\n\nConfigure the six advisory board seats for this business.`;
 
   try {
-    const raw = await completeText(orgId, CHAIR_CONTEXT_SYSTEM, prompt, {
-      max_tokens: 1600,
-      temperature: 0.2,
-    });
-    const stripped = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
     // Match specifically a JSON array of objects: [{...}] — avoids collisions with [bracket] notation in prose
-    const match = stripped.match(/\[\s*\{[\s\S]*\}\s*\]/);
-    if (!match) throw new Error("no JSON array of objects in response");
-    const contexts = JSON.parse(match[0]) as ChairContext[];
-    if (!Array.isArray(contexts) || contexts.length < 5) throw new Error("too few chairs");
+    const contexts = await completeJsonWithRetry(
+      orgId, CHAIR_CONTEXT_SYSTEM, prompt,
+      { max_tokens: 1600, temperature: 0.2 },
+      /\[\s*\{[\s\S]*\}\s*\]/,
+      isChairContextArray
+    );
 
     // Guarantee the five non-negotiable domains are present
     const present = new Set(contexts.map(c => c.ui_domain));
@@ -227,7 +234,8 @@ async function inferChairContexts(
 
     return contexts;
   } catch (err) {
-    console.error(`[chair-context] failed for org=${orgId}:`, err instanceof Error ? err.message : err);
+    const errText = err instanceof Error ? err.message : String(err);
+    console.error(`[chair-context] failed for org=${sanitizeForLog(orgId)}: ${errText}`);
     return ["finance", "ops", "hr", "growth", "it", "legal"].map(d => fallbackChair(d, industry));
   }
 }
@@ -251,6 +259,14 @@ Decide which candidates this specific seat actually needs to do its job well for
 Return ONLY valid JSON -- no prose, no markdown fences:
 {"selected": [{"slug": "...", "reason": "one short phrase"}]}`;
 
+type WorkerSelectionResponse = { selected: Array<{ slug: string }> };
+
+function isWorkerSelectionResponse(parsed: unknown): parsed is WorkerSelectionResponse {
+  return typeof parsed === "object" && parsed !== null &&
+    Array.isArray((parsed as WorkerSelectionResponse).selected) &&
+    (parsed as WorkerSelectionResponse).selected.every(s => typeof s === "object" && s !== null && typeof s.slug === "string");
+}
+
 async function selectRelevantWorkers(
   chair: ChairContext,
   orgId: string,
@@ -270,12 +286,11 @@ async function selectRelevantWorkers(
 
   const prompt = `SEAT: ${chair.name} -- ${chair.function}\n\nBUSINESS:\n${orgSummary}\n\nCANDIDATES:\n${JSON.stringify(candidateList, null, 2)}\n\nWhich of these candidates does this seat actually need?`;
 
-  const fallbackToTopRanked = (reason: string, err?: unknown) => {
+  const fallbackToTopRanked = (reason: string) => {
     // Single-argument form deliberately: with a second arg present, Node's
     // console.error treats the first string as a printf-style format
     // string, and chair.ui_domain/orgId aren't sanitized against "%".
-    const errText = err instanceof Error ? err.message : err ? String(err) : "";
-    console.error(`[worker-selection] ${reason} for chair=${chair.ui_domain} org=${orgId}, falling back to top-ranked candidates: ${errText}`);
+    console.error(`[worker-selection] ${reason} for chair=${sanitizeForLog(chair.ui_domain)} org=${sanitizeForLog(orgId)}, falling back to top-ranked candidates.`);
     const seen = new Set<string>();
     const workers: Array<{ slug: string; catalog_path: string }> = [];
     for (const c of candidates) {
@@ -287,15 +302,12 @@ async function selectRelevantWorkers(
   };
 
   try {
-    const raw = await completeText(orgId, WORKER_SELECTION_SYSTEM, prompt, {
-      max_tokens: 1200,
-      temperature: 0.2,
-    });
-    const stripped = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-    const match = stripped.match(/\{[\s\S]*\}/);
-    if (!match) return fallbackToTopRanked("no JSON object in response");
-    const parsed = JSON.parse(match[0]) as { selected?: Array<{ slug: string }> };
-    if (!Array.isArray(parsed.selected)) return fallbackToTopRanked("missing selected array");
+    const parsed = await completeJsonWithRetry(
+      orgId, WORKER_SELECTION_SYSTEM, prompt,
+      { max_tokens: 1200, temperature: 0.2 },
+      /\{[\s\S]*\}/,
+      isWorkerSelectionResponse
+    );
 
     const bySlug = new Map(candidates.map(c => [c.specialist_slug, c]));
     const seen = new Set<string>();
@@ -311,7 +323,7 @@ async function selectRelevantWorkers(
     if (workers.length === 0) return fallbackToTopRanked("model selected zero valid candidates");
     return workers;
   } catch (err) {
-    return fallbackToTopRanked("inference call failed", err);
+    return fallbackToTopRanked(err instanceof Error ? err.message : String(err));
   }
 }
 
