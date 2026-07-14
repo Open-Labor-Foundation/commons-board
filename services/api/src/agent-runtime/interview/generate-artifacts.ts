@@ -1,7 +1,7 @@
 import { CURRENT_ARTIFACT_SCHEMA_VERSION } from "@commons-board/shared";
 import type { GovernanceModeValue, InterviewAnswers, InterviewArtifacts, MemberRole } from "./types.js";
 import { searchBySections, getSpecialist } from "../../lib/labor-commons-client.js";
-import { completeText } from "../../lib/model-client.js";
+import { completeText, mapConcurrent } from "../../lib/model-client.js";
 import { registerChair, syncOrgAutonomyTier, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
 
 // commons-board's onboarding always produces exactly these seven ui_domain
@@ -232,11 +232,94 @@ async function inferChairContexts(
   }
 }
 
-// ── Worker search: code-driven, no LLM ───────────────────────────────────────
+// ── Worker search: code retrieves candidates, LLM decides which are actually needed ──
+
+// Retrieval is still code: searchBySections' lexical/specialization ranking
+// narrows an entire catalog section down to a manageable candidate pool --
+// no LLM could reasonably be handed the unfiltered catalog. But which of
+// those candidates a *specific seat* actually needs, for *this* business,
+// is a judgment call, not a fixed cutoff -- that's the part that was
+// missing. A one-person volunteer-run software foundation and a 50-person
+// restaurant chain shouldn't get the same size roster just because both
+// searches happened to return enough hits to fill a fixed count.
+const WORKER_SELECTION_SYSTEM = `You are staffing one advisory-board seat with real specialists from a catalog, for one specific business.
+
+You'll get the seat's name and function, the business's real profile, and a list of candidate specialists already narrowed by a lexical/relevance search (slug, name, domain, task coverage against this business's description, definition boundary quality, freshness).
+
+Decide which candidates this specific seat actually needs to do its job well for THIS business -- not a fixed number, not "as many as possible." Select as many or as few as are genuinely relevant. Omit anything that's a weak or tangential fit even if the search ranked it highly -- lexical similarity is not the same thing as actual need. Never invent a slug that isn't in the candidate list; never select zero if at least one candidate is genuinely relevant.
+
+Return ONLY valid JSON -- no prose, no markdown fences:
+{"selected": [{"slug": "...", "reason": "one short phrase"}]}`;
+
+async function selectRelevantWorkers(
+  chair: ChairContext,
+  orgId: string,
+  orgSummary: string,
+  candidates: Awaited<ReturnType<typeof searchBySections>>
+): Promise<Array<{ slug: string; catalog_path: string }>> {
+  if (candidates.length === 0) return [];
+
+  const candidateList = candidates.slice(0, 30).map(c => ({
+    slug: c.specialist_slug,
+    name: c.display_name,
+    domain: c.domain_family,
+    task_coverage: c.task_coverage,
+    boundary_quality: c.boundary_quality,
+    freshness: c.freshness_status,
+  }));
+
+  const prompt = `SEAT: ${chair.name} -- ${chair.function}\n\nBUSINESS:\n${orgSummary}\n\nCANDIDATES:\n${JSON.stringify(candidateList, null, 2)}\n\nWhich of these candidates does this seat actually need?`;
+
+  const fallbackToTopRanked = (reason: string, err?: unknown) => {
+    // Single-argument form deliberately: with a second arg present, Node's
+    // console.error treats the first string as a printf-style format
+    // string, and chair.ui_domain/orgId aren't sanitized against "%".
+    const errText = err instanceof Error ? err.message : err ? String(err) : "";
+    console.error(`[worker-selection] ${reason} for chair=${chair.ui_domain} org=${orgId}, falling back to top-ranked candidates: ${errText}`);
+    const seen = new Set<string>();
+    const workers: Array<{ slug: string; catalog_path: string }> = [];
+    for (const c of candidates) {
+      if (seen.has(c.specialist_slug) || workers.length >= 12) continue;
+      seen.add(c.specialist_slug);
+      workers.push({ slug: c.specialist_slug, catalog_path: c.catalog_path });
+    }
+    return workers;
+  };
+
+  try {
+    const raw = await completeText(orgId, WORKER_SELECTION_SYSTEM, prompt, {
+      max_tokens: 1200,
+      temperature: 0.2,
+    });
+    const stripped = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    const match = stripped.match(/\{[\s\S]*\}/);
+    if (!match) return fallbackToTopRanked("no JSON object in response");
+    const parsed = JSON.parse(match[0]) as { selected?: Array<{ slug: string }> };
+    if (!Array.isArray(parsed.selected)) return fallbackToTopRanked("missing selected array");
+
+    const bySlug = new Map(candidates.map(c => [c.specialist_slug, c]));
+    const seen = new Set<string>();
+    const workers: Array<{ slug: string; catalog_path: string }> = [];
+    for (const { slug } of parsed.selected) {
+      const c = bySlug.get(slug);
+      // Ignore hallucinated slugs (not in the offered candidate list) rather
+      // than trusting the model to only ever pick from what it was given.
+      if (!c || seen.has(slug) || workers.length >= 15) continue;
+      seen.add(slug);
+      workers.push({ slug: c.specialist_slug, catalog_path: c.catalog_path });
+    }
+    if (workers.length === 0) return fallbackToTopRanked("model selected zero valid candidates");
+    return workers;
+  } catch (err) {
+    return fallbackToTopRanked("inference call failed", err);
+  }
+}
 
 async function populateChairWorkers(
   chair: ChairContext,
-  industry: string
+  industry: string,
+  orgId: string,
+  orgSummary: string
 ): Promise<WorkerSelection> {
   if (!chair.has_workers) return { chair, workers: [] };
 
@@ -249,17 +332,13 @@ async function populateChairWorkers(
   }
 
   // For legal/security chairs on non-tech businesses, drop IT governance specialists
+  // before the model ever sees them -- a domain-correctness filter, not a relevance judgment.
   const filterItGov = ["legal", "security"].includes(chair.ui_domain) && !isTechBusiness(industry);
+  const candidates = filterItGov
+    ? results.filter(m => !IT_GOV_SLUG.test(m.specialist_slug))
+    : results;
 
-  const seen = new Set<string>();
-  const workers: Array<{ slug: string; catalog_path: string }> = [];
-  for (const m of results) {
-    if (seen.has(m.specialist_slug) || workers.length >= 12) continue;
-    if (filterItGov && IT_GOV_SLUG.test(m.specialist_slug)) continue;
-    seen.add(m.specialist_slug);
-    workers.push({ slug: m.specialist_slug, catalog_path: m.catalog_path });
-  }
-
+  const workers = await selectRelevantWorkers(chair, orgId, orgSummary, candidates);
   return { chair, workers };
 }
 
@@ -365,13 +444,26 @@ async function buildAgentBlueprint(
   orgId: string
 ): Promise<{ chairs: Awaited<ReturnType<typeof buildBlueprintChairs>> }> {
   const industry = answers.S1?.industry ?? "general";
+  const orgSummary = buildOrgSummary(answers);
 
   // Step 1: LLM contextualizes chair names + functions (guaranteed domains, legal/security split)
   const chairContexts = await inferChairContexts(answers, orgId);
 
-  // Step 2: Code searches catalog per domain — no LLM involvement in worker selection
-  const selections = await Promise.all(
-    chairContexts.map(chair => populateChairWorkers(chair, industry))
+  // Step 2: code retrieves a candidate pool per domain (lexical/relevance
+  // search), LLM decides which of those candidates this specific seat
+  // actually needs for this business -- see selectRelevantWorkers. Run
+  // strictly sequentially, not just concurrency-bounded: firing one
+  // inference call per chair via Promise.all blew straight through a
+  // 4-lane key (5 of 6 calls came back HTTP 429). Bounding to
+  // getProviderConcurrency's maxParallel (also 4 here) *still* produced
+  // 429s on a second live run -- the configured lane count doesn't
+  // reliably reflect what the provider will actually sustain concurrently
+  // in practice. Onboarding runs once per org, not on a hot path, so
+  // trading a few extra seconds of wall time for zero rate-limit risk is
+  // the right tradeoff -- hardcode sequential (concurrency 1) rather than
+  // trust a configured value that's already been observed not to hold.
+  const selections = await mapConcurrent(chairContexts, 1, chair =>
+    populateChairWorkers(chair, industry, orgId, orgSummary)
   );
 
   // Step 3: Assemble with governance from specs
