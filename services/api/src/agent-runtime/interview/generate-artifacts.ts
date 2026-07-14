@@ -1,7 +1,7 @@
 import { CURRENT_ARTIFACT_SCHEMA_VERSION } from "@commons-board/shared";
 import type { GovernanceModeValue, InterviewAnswers, InterviewArtifacts, MemberRole } from "./types.js";
 import { searchBySections, getSpecialist } from "../../lib/labor-commons-client.js";
-import { completeText } from "../../lib/model-client.js";
+import { completeText, getProviderConcurrency, mapConcurrent } from "../../lib/model-client.js";
 import { registerChair, syncOrgAutonomyTier, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
 
 // commons-board's onboarding always produces exactly these seven ui_domain
@@ -447,9 +447,15 @@ async function buildAgentBlueprint(
 
   // Step 2: code retrieves a candidate pool per domain (lexical/relevance
   // search), LLM decides which of those candidates this specific seat
-  // actually needs for this business -- see selectRelevantWorkers.
-  const selections = await Promise.all(
-    chairContexts.map(chair => populateChairWorkers(chair, industry, orgId, orgSummary))
+  // actually needs for this business -- see selectRelevantWorkers. Bounded
+  // to the workspace's actual concurrency budget: firing one inference call
+  // per chair via Promise.all blew straight through a 4-lane key (5 of 6
+  // calls came back HTTP 429, the 6th got truncated) the first time this
+  // ran for real against a live provider -- caught by selectRelevantWorkers'
+  // own error logging, not silently masked the way extractWithAI's is.
+  const { maxParallel } = getProviderConcurrency(orgId);
+  const selections = await mapConcurrent(chairContexts, maxParallel, chair =>
+    populateChairWorkers(chair, industry, orgId, orgSummary)
   );
 
   // Step 3: Assemble with governance from specs
