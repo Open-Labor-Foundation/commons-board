@@ -25,6 +25,52 @@ export class NoProviderConfiguredError extends Error {
   }
 }
 
+/**
+ * Global, in-process concurrency gate on the active provider for a
+ * workspace -- keyed by provider_id, not workspaceId, since the same
+ * API key (and its real lane allotment) can be the active provider for
+ * more than one workspace.
+ *
+ * Exists because getProviderConcurrency/mapConcurrent were only ever used
+ * *locally*, independently, by each caller (the interview flow,
+ * motherboard-chat.ts, agent-job-runner.ts) to bound its own batch of
+ * calls -- nothing coordinated across callers, so a request mid-flight in
+ * one code path had no way to know a completely unrelated request (a
+ * scheduled cadence job, a concurrent chat request) was about to exceed
+ * the key's real concurrent-call budget at the same moment. A caller that
+ * dutifully bounded itself to maxParallel could still lose a race against
+ * something else entirely, and did: repeated live testing produced
+ * malformed/truncated responses (not clean 429s) under exactly this kind
+ * of cross-request contention. This is the one choke point every
+ * inference call actually passes through regardless of caller, so it's
+ * the only place a global limit can be enforced correctly.
+ */
+const activeCallCounts = new Map<string, number>();
+const waitQueues = new Map<string, Array<() => void>>();
+
+async function acquireProviderSlot(providerId: string, maxParallel: number): Promise<() => void> {
+  const current = activeCallCounts.get(providerId) ?? 0;
+  if (current < maxParallel) {
+    activeCallCounts.set(providerId, current + 1);
+    return () => releaseProviderSlot(providerId);
+  }
+  return new Promise<() => void>((resolve) => {
+    const queue = waitQueues.get(providerId) ?? [];
+    queue.push(() => {
+      activeCallCounts.set(providerId, (activeCallCounts.get(providerId) ?? 0) + 1);
+      resolve(() => releaseProviderSlot(providerId));
+    });
+    waitQueues.set(providerId, queue);
+  });
+}
+
+function releaseProviderSlot(providerId: string): void {
+  activeCallCounts.set(providerId, Math.max(0, (activeCallCounts.get(providerId) ?? 1) - 1));
+  const queue = waitQueues.get(providerId);
+  const next = queue?.shift();
+  if (next) next();
+}
+
 export async function complete(
   workspaceId: string,
   req: Omit<InferenceRequest, "correlation_id"> & { correlation_id?: string }
@@ -40,8 +86,17 @@ export async function complete(
     throw new NoProviderConfiguredError(workspaceId);
   }
 
-  const provider = createProvider(config);
-  return provider.complete(req);
+  const lanes = config.concurrency_lanes ?? 1;
+  const cost = Math.max(1, config.concurrency_cost ?? 1);
+  const maxParallel = Math.max(1, Math.floor(lanes / cost));
+
+  const release = await acquireProviderSlot(config.provider_id, maxParallel);
+  try {
+    const provider = createProvider(config);
+    return await provider.complete(req);
+  } finally {
+    release();
+  }
 }
 
 /**

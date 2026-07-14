@@ -1,7 +1,7 @@
 import { CURRENT_ARTIFACT_SCHEMA_VERSION } from "@commons-board/shared";
 import type { GovernanceModeValue, InterviewAnswers, InterviewArtifacts, MemberRole } from "./types.js";
 import { searchBySections, getSpecialist } from "../../lib/labor-commons-client.js";
-import { mapConcurrent } from "../../lib/model-client.js";
+import { getProviderConcurrency, mapConcurrent } from "../../lib/model-client.js";
 import { completeJsonWithRetry } from "../../lib/model-json.js";
 import { registerChair, syncOrgAutonomyTier, sanitizeForLog, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
 
@@ -485,18 +485,22 @@ async function buildAgentBlueprint(
 
   // Step 2: code retrieves a candidate pool per domain (lexical/relevance
   // search), LLM decides which of those candidates this specific seat
-  // actually needs for this business -- see selectRelevantWorkers. Run
-  // strictly sequentially, not just concurrency-bounded: firing one
-  // inference call per chair via Promise.all blew straight through a
-  // 4-lane key (5 of 6 calls came back HTTP 429). Bounding to
-  // getProviderConcurrency's maxParallel (also 4 here) *still* produced
-  // 429s on a second live run -- the configured lane count doesn't
-  // reliably reflect what the provider will actually sustain concurrently
-  // in practice. Onboarding runs once per org, not on a hot path, so
-  // trading a few extra seconds of wall time for zero rate-limit risk is
-  // the right tradeoff -- hardcode sequential (concurrency 1) rather than
-  // trust a configured value that's already been observed not to hold.
-  const selections = await mapConcurrent(chairContexts, 1, chair =>
+  // actually needs for this business -- see selectRelevantWorkers. Bounded
+  // to the real concurrency budget (maxParallel = floor(lanes/cost) --
+  // e.g. a 4-lane key with a 4-lane-cost model is exactly 1 concurrent
+  // call, not 4). This alone wasn't sufficient live: complete() (model-
+  // client.ts) previously had no *global* concurrency gate, so this loop
+  // could correctly bound itself to its own maxParallel and still lose a
+  // race against a completely unrelated concurrent request (a scheduled
+  // cadence job, a chat request) hitting the same provider at the same
+  // moment -- exactly what produced the malformed/truncated responses
+  // this was chasing, not clean 429s every time. Fixed at the actual
+  // choke point instead: complete() now gates on a real, global,
+  // provider-keyed semaphore every caller shares, so bounding here is
+  // correct and sufficient again rather than needing to hardcode a
+  // pessimistic value.
+  const { maxParallel } = getProviderConcurrency(orgId);
+  const selections = await mapConcurrent(chairContexts, maxParallel, chair =>
     populateChairWorkers(chair, industry, orgId, orgSummary)
   );
 
