@@ -55,12 +55,12 @@ export async function syncOrgAutonomyTier(orgContext: string, tier: OrgAutonomyT
       body: JSON.stringify({ tier })
     });
     if (!resp.ok) {
-      console.error(`[commons-crew-client] autonomy-tier sync failed (${resp.status}) for org=${orgContext}`);
+      console.error(`[commons-crew-client] autonomy-tier sync failed (${resp.status}) for org=${sanitizeForLog(orgContext)}`);
       return false;
     }
     return true;
   } catch (err) {
-    console.error(`[commons-crew-client] autonomy-tier sync errored for org=${orgContext}:`, err instanceof Error ? err.message : err);
+    console.error(`[commons-crew-client] autonomy-tier sync errored for org=${sanitizeForLog(orgContext)}:`, err instanceof Error ? err.message : err);
     return false;
   }
 }
