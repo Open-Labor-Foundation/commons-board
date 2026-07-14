@@ -271,7 +271,11 @@ async function selectRelevantWorkers(
   const prompt = `SEAT: ${chair.name} -- ${chair.function}\n\nBUSINESS:\n${orgSummary}\n\nCANDIDATES:\n${JSON.stringify(candidateList, null, 2)}\n\nWhich of these candidates does this seat actually need?`;
 
   const fallbackToTopRanked = (reason: string, err?: unknown) => {
-    console.error(`[worker-selection] ${reason} for chair=${chair.ui_domain} org=${orgId}, falling back to top-ranked candidates:`, err instanceof Error ? err.message : err ?? "");
+    // Single-argument form deliberately: with a second arg present, Node's
+    // console.error treats the first string as a printf-style format
+    // string, and chair.ui_domain/orgId aren't sanitized against "%".
+    const errText = err instanceof Error ? err.message : err ? String(err) : "";
+    console.error(`[worker-selection] ${reason} for chair=${chair.ui_domain} org=${orgId}, falling back to top-ranked candidates: ${errText}`);
     const seen = new Set<string>();
     const workers: Array<{ slug: string; catalog_path: string }> = [];
     for (const c of candidates) {
