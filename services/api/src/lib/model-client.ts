@@ -26,8 +26,8 @@ export class NoProviderConfiguredError extends Error {
 }
 
 /**
- * Global, in-process concurrency gate on the active provider for a
- * workspace -- keyed by provider_id, not workspaceId, since the same
+ * Global, in-process concurrency + pacing gate on the active provider for
+ * a workspace -- keyed by provider_id, not workspaceId, since the same
  * API key (and its real lane allotment) can be the active provider for
  * more than one workspace.
  *
@@ -37,31 +37,53 @@ export class NoProviderConfiguredError extends Error {
  * calls -- nothing coordinated across callers, so a request mid-flight in
  * one code path had no way to know a completely unrelated request (a
  * scheduled cadence job, a concurrent chat request) was about to exceed
- * the key's real concurrent-call budget at the same moment. A caller that
- * dutifully bounded itself to maxParallel could still lose a race against
- * something else entirely, and did: repeated live testing produced
- * malformed/truncated responses (not clean 429s) under exactly this kind
- * of cross-request contention. This is the one choke point every
- * inference call actually passes through regardless of caller, so it's
- * the only place a global limit can be enforced correctly.
+ * the key's real concurrent-call budget at the same moment.
+ *
+ * The concurrency cap alone was still not enough live: a strict "never
+ * more than maxParallel calls literally in flight" gate still produced
+ * a run of HTTP 429s -- because the moment one call's response landed,
+ * the next queued call fired immediately, with zero gap. Concurrency and
+ * request rate are different constraints; capping the former doesn't cap
+ * the latter. MIN_CALL_SPACING_MS enforces a minimum gap between when
+ * consecutive calls to the same provider are *granted a slot* (not just
+ * "not overlapping"), independent of and in addition to maxParallel.
  */
+export const MIN_CALL_SPACING_MS = 1500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const activeCallCounts = new Map<string, number>();
 const waitQueues = new Map<string, Array<() => void>>();
+const lastGrantedAt = new Map<string, number>();
 
-async function acquireProviderSlot(providerId: string, maxParallel: number): Promise<() => void> {
+function acquireConcurrencySlot(providerId: string, maxParallel: number): Promise<void> {
   const current = activeCallCounts.get(providerId) ?? 0;
   if (current < maxParallel) {
     activeCallCounts.set(providerId, current + 1);
-    return () => releaseProviderSlot(providerId);
+    return Promise.resolve();
   }
-  return new Promise<() => void>((resolve) => {
+  return new Promise<void>((resolve) => {
     const queue = waitQueues.get(providerId) ?? [];
     queue.push(() => {
       activeCallCounts.set(providerId, (activeCallCounts.get(providerId) ?? 0) + 1);
-      resolve(() => releaseProviderSlot(providerId));
+      resolve();
     });
     waitQueues.set(providerId, queue);
   });
+}
+
+async function acquireProviderSlot(providerId: string, maxParallel: number): Promise<() => void> {
+  await acquireConcurrencySlot(providerId, maxParallel);
+  // Pacing is enforced at grant time, not release time, and applies
+  // whether the slot was granted immediately or after queueing -- a call
+  // that never had to wait for concurrency still needs to respect the
+  // minimum gap since the last call was granted.
+  const wait = (lastGrantedAt.get(providerId) ?? 0) + MIN_CALL_SPACING_MS - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastGrantedAt.set(providerId, Date.now());
+  return () => releaseProviderSlot(providerId);
 }
 
 function releaseProviderSlot(providerId: string): void {
