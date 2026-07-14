@@ -60,7 +60,11 @@ export async function syncOrgAutonomyTier(orgContext: string, tier: OrgAutonomyT
     }
     return true;
   } catch (err) {
-    console.error(`[commons-crew-client] autonomy-tier sync errored for org=${sanitizeForLog(orgContext)}:`, err instanceof Error ? err.message : err);
+    // Single-argument form deliberately -- with a second arg present, Node's
+    // console.error treats the first string as a printf-style format string,
+    // and sanitizeForLog doesn't strip "%" (only control characters), so a
+    // crafted orgContext could still trigger format-specifier confusion.
+    console.error(`[commons-crew-client] autonomy-tier sync errored for org=${sanitizeForLog(orgContext)}: ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
 }
