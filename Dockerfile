@@ -9,8 +9,7 @@ RUN npm ci
 COPY packages/shared packages/shared
 COPY packages/connectors packages/connectors
 COPY services/api services/api
-RUN npm run build -w @commons-board/shared \
- && npm run build -w @commons-board/connectors \
+RUN rm -rf services/api/dist \
  && npm run build -w @commons-board/api
 
 FROM node:22-alpine AS runtime

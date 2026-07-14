@@ -62,7 +62,7 @@ export async function resolveChair(
   if (primaryGapTasks.length > 0 && matches.length > 1) {
     for (const candidate of matches.slice(1, 4)) {
       if (candidate.match_score >= PRIMARY_SCORE_THRESHOLD) {
-        const coversSomePrimaryGaps = primaryGapTasks.some((gt) =>
+        const coversSomePrimaryGaps = primaryGapTasks.some((_gt: string) =>
           candidate.specialist_slug !== primary.specialist_slug
         );
         if (coversSomePrimaryGaps) {
@@ -133,7 +133,7 @@ export function applyResolutionsToBlueprint(
       ...(primary
         ? [{ specialist_slug: primary.specialist_slug, catalog_path: primary.catalog_path, role: "primary", pinned_ref: null }]
         : []),
-      ...supporting.map((s) => ({
+      ...supporting.map((s: SpecialistMatch) => ({
         specialist_slug: s.specialist_slug,
         catalog_path: s.catalog_path,
         role: "supporting",

@@ -23,6 +23,27 @@ type OrgGap = {
   status: string;
 };
 
+type ReviewItem = {
+  id: string;
+  category: string;
+  discipline: string;
+  reviewer_type: string;
+  scope: string;
+  artifacts_covered: string[];
+  status: "required" | "under_review" | "approved";
+  reviewer_name: string | null;
+  review_date: string | null;
+  notes: string | null;
+};
+
+type ReviewManifest = {
+  payload: {
+    advisory_statement: string;
+    review_items: ReviewItem[];
+    go_live_gate: { requires_all_approved: boolean; minimum_required_categories: string[] };
+  };
+};
+
 const DOMAIN_COLOR: Record<string, string> = {
   finance: "#16a34a", ops: "#2563eb", legal: "#7c3aed", hr: "#d97706",
   strategy: "#4f46e5", product: "#0891b2", security: "#dc2626",
@@ -31,9 +52,22 @@ const DOMAIN_COLOR: Record<string, string> = {
 
 function domainColor(domain: string) { return DOMAIN_COLOR[domain] ?? "#64748b"; }
 
+const REVIEW_STATUS_STYLE: Record<ReviewItem["status"], { bg: string; color: string; label: string }> = {
+  required:     { bg: "#dc262618", color: "#dc2626", label: "Required" },
+  under_review: { bg: "#d9770618", color: "#d97706", label: "In review" },
+  approved:     { bg: "#16a34a18", color: "#16a34a", label: "Approved" },
+};
+
+const CATEGORY_LABEL: Record<string, string> = {
+  legal: "Legal", financial: "Financial", insurance: "Insurance",
+  regulatory: "Regulatory", food_safety: "Food Safety", labor: "Labor",
+  technology: "Technology", governance: "Governance",
+};
+
 export default function BoardRosterPage() {
   const [chairs, setChairs] = useState<Chair[]>([]);
   const [gaps, setGaps] = useState<OrgGap[]>([]);
+  const [manifest, setManifest] = useState<ReviewManifest | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [gapDesc, setGapDesc] = useState("");
@@ -42,13 +76,15 @@ export default function BoardRosterPage() {
   const [msg, setMsg] = useState("");
 
   const load = useCallback(async () => {
-    const [bp, g] = await Promise.all([
+    const [bp, g, rm] = await Promise.all([
       apiFetch<AgentBlueprint>("/api/v1/artifacts/agent_blueprint/latest"),
       apiFetch<{ gaps: OrgGap[] }>("/api/v1/org/gaps"),
+      apiFetch<ReviewManifest>("/api/v1/artifacts/professional_review_manifest/latest"),
     ]);
     const payload = bp?.payload as { chairs?: Chair[] } | undefined;
     setChairs(payload?.chairs ?? []);
     setGaps(g?.gaps ?? []);
+    setManifest(rm ?? null);
     setLoading(false);
   }, []);
 
@@ -74,6 +110,37 @@ export default function BoardRosterPage() {
           Your board chairs and the areas of the business they manage on your behalf.
         </p>
       </div>
+
+      {/* Go-live gate */}
+      {manifest && (() => {
+        const items = manifest.payload.review_items ?? [];
+        const gate = manifest.payload.go_live_gate;
+        const requiredCats = gate?.minimum_required_categories ?? [];
+        const approvedCats = items.filter(i => i.status === "approved").map(i => i.category);
+        const pendingRequired = requiredCats.filter(c => !approvedCats.includes(c));
+        const allGatesMet = pendingRequired.length === 0;
+        if (allGatesMet) return null;
+        return (
+          <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "var(--radius-lg)", padding: "14px 18px", display: "flex", gap: 14, alignItems: "flex-start" }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>🔒</span>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#dc2626", margin: "0 0 4px" }}>
+                Not cleared for operations — {pendingRequired.length} required review{pendingRequired.length !== 1 ? "s" : ""} pending
+              </p>
+              <p style={{ fontSize: 12, color: "#7f1d1d", margin: "0 0 8px", lineHeight: 1.5 }}>
+                This cooperative requires sign-off from qualified professionals in the following categories before any operational, legal, or financial activity can begin.
+              </p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {pendingRequired.map(cat => (
+                  <span key={cat} style={{ fontSize: 11, fontWeight: 700, background: "#dc262618", color: "#dc2626", padding: "2px 9px", borderRadius: 10 }}>
+                    {cat.replace(/_/g, " ")}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {chairs.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)" }}>
@@ -159,6 +226,71 @@ export default function BoardRosterPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Professional review manifest */}
+      {manifest && (
+        <div style={{ marginTop: 32 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Professional Review Required</h3>
+            {(() => {
+              const items = manifest.payload.review_items ?? [];
+              const allApproved = items.every(i => i.status === "approved");
+              const anyPending = items.some(i => i.status === "required");
+              return (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 10,
+                  background: allApproved ? "#16a34a18" : anyPending ? "#dc262618" : "#d9770618",
+                  color:      allApproved ? "#16a34a"   : anyPending ? "#dc2626"   : "#d97706",
+                }}>
+                  {allApproved ? "All approved" : anyPending ? "Reviews pending" : "In progress"}
+                </span>
+              );
+            })()}
+          </div>
+          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 14px", lineHeight: 1.5 }}>
+            {manifest.payload.advisory_statement}
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(manifest.payload.review_items ?? []).map(item => {
+              const style = REVIEW_STATUS_STYLE[item.status];
+              return (
+                <div key={item.id} style={{ display: "flex", gap: 12, padding: "12px 14px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", alignItems: "flex-start" }}>
+                  <div style={{ flexShrink: 0, marginTop: 2 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, background: style.bg, color: style.color, padding: "2px 8px", borderRadius: 10 }}>
+                      {style.label}
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{item.discipline}</p>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)", background: "var(--surface-overlay)", border: "1px solid var(--border)", borderRadius: 10, padding: "1px 7px" }}>
+                        {CATEGORY_LABEL[item.category] ?? item.category}
+                      </span>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{item.reviewer_type}</span>
+                    </div>
+                    <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "3px 0 0", lineHeight: 1.4 }}>{item.scope}</p>
+                    {item.artifacts_covered.length > 0 && (
+                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 0" }}>
+                        Covers: {item.artifacts_covered.join(", ")}
+                      </p>
+                    )}
+                    {item.reviewer_name && (
+                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "3px 0 0" }}>
+                        Reviewer: {item.reviewer_name}{item.review_date ? ` · ${item.review_date}` : ""}
+                      </p>
+                    )}
+                    {item.notes && (
+                      <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0", background: "var(--surface-overlay)", padding: "5px 8px", borderRadius: "var(--radius)", border: "1px solid var(--border)" }}>
+                        {item.notes}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

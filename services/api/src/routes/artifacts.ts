@@ -21,7 +21,17 @@ const ARTIFACT_TYPES: ArtifactType[] = [
   "autonomy_policy",
   "cadence_protocol",
   "agent_blueprint",
-  "collective_config"
+  "collective_config",
+  "venture_profile",
+  "launch_plan",
+  "tooling_plan",
+  "financial_policy",
+  "service_catalog",
+  "member_interaction_protocol",
+  "earnings_distribution_model",
+  "dispute_resolution_protocol",
+  "onboarding_track",
+  "professional_review_manifest",
 ];
 
 function parseType(raw: string): ArtifactType | null {

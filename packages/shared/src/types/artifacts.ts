@@ -1,11 +1,15 @@
 /**
- * The six governing artifacts of commons-board.
+ * Governing artifacts of commons-board.
  *
  * Artifacts are authoritative configuration. Agents read artifacts and act on
  * them; agents never write artifacts. Every artifact is versioned, validated
  * against a JSON schema on write, and hash-chained into the governance record.
  *
  * See planning/artifacts.md for the full contract.
+ *
+ * ADVISORY: All artifacts are advisory outputs produced by AI workers and
+ * require review and sign-off by qualified professionals before operational
+ * use. See professional_review_manifest for the required review checklist.
  */
 
 export type GovernanceMode = "business" | "collective";
@@ -22,7 +26,13 @@ export type ArtifactType =
   | "venture_profile"
   | "launch_plan"
   | "tooling_plan"
-  | "financial_policy";
+  | "financial_policy"
+  | "service_catalog"
+  | "member_interaction_protocol"
+  | "earnings_distribution_model"
+  | "dispute_resolution_protocol"
+  | "onboarding_track"
+  | "professional_review_manifest";
 
 /** 1. business_profile.json — who the organization is. */
 export interface BusinessProfile {
@@ -205,6 +215,177 @@ export interface CollectiveConfig {
   schema_version: string;
 }
 
+/** 7. service_catalog.json — what the org offers, at what terms, and to whom. */
+export interface ServiceCatalog {
+  org_id: string;
+  schema_version: string;
+  service_verticals: Array<{
+    id: string;
+    name: string;
+    description: string;
+    status: "active" | "planned" | "suspended";
+    launch_date: string | null;
+  }>;
+  delivery_terms: {
+    service_radius_miles: number;
+    delivery_windows: string[];
+    excluded_zones: string[];
+    minimum_order_value: number | null;
+    average_delivery_time_minutes: number | null;
+  };
+  fee_structure: {
+    delivery_member_rate_pct: number;
+    business_member_rate_pct: number;
+    consumer_delivery_fee_range: { min: number; max: number };
+    surge_multiplier_max: number;
+    fee_change_requires: "member_vote" | "board_approval" | "coordinator";
+  };
+  advisory_notice: string;
+}
+
+/** 8. member_interaction_protocol.json — how member classes interact operationally. */
+export interface MemberInteractionProtocol {
+  org_id: string;
+  schema_version: string;
+  delivery_member_capabilities: string[];
+  business_member_capabilities: string[];
+  shared_visibility: string[];
+  order_flow_stages: Array<{
+    stage_id: string;
+    name: string;
+    actor: "consumer" | "business_member" | "platform" | "delivery_member";
+    action: string;
+    timeout_minutes: number | null;
+    on_timeout: string | null;
+  }>;
+  handoff_protocol: {
+    pickup_confirmation_required: boolean;
+    proof_of_delivery_required: boolean;
+    photo_required: boolean;
+    contactless_default: boolean;
+    id_verification_categories: string[];
+  };
+  communication_channels: Array<{
+    channel: string;
+    parties: string[];
+    purpose: string;
+  }>;
+  advisory_notice: string;
+}
+
+/** 9. earnings_distribution_model.json — how platform revenue flows to members. */
+export interface EarningsDistributionModel {
+  org_id: string;
+  schema_version: string;
+  gross_revenue_sources: string[];
+  distribution_waterfall: Array<{
+    step: number;
+    name: string;
+    recipient: string;
+    rate_pct: number | null;
+    fixed_amount: number | null;
+    description: string;
+  }>;
+  earnings_floor: {
+    enabled: boolean;
+    floor_per_hour_usd: number;
+    basis: "active_time" | "on_shift_time" | "total_time";
+    enforcement: string;
+  };
+  income_smoothing: {
+    enabled: boolean;
+    fund_name: string;
+    max_weekly_per_member_usd: number | null;
+    max_weeks_per_year: number | null;
+    fund_target_balance_usd: number | null;
+    approval_required_above_usd: number | null;
+  };
+  settlement_cadence: "daily" | "weekly" | "biweekly";
+  surplus_distribution: {
+    method: "equal_per_member" | "proportional_to_hours" | "proportional_to_deliveries" | "mixed";
+    frequency: "quarterly" | "semi_annual" | "annual";
+    reserve_rate_pct: number;
+    requires_member_vote: boolean;
+  };
+  advisory_notice: string;
+}
+
+/** 10. dispute_resolution_protocol.json — escalation paths for conflicts between member classes. */
+export interface DisputeResolutionProtocol {
+  org_id: string;
+  schema_version: string;
+  dispute_categories: Array<{
+    id: string;
+    name: string;
+    parties: string[];
+    initial_handler: string;
+    escalation_path: string[];
+    resolution_sla_hours: number;
+    examples: string[];
+  }>;
+  adjudication_authority: {
+    first_level: string;
+    appeal_level: string;
+    final_authority: string;
+  };
+  evidence_requirements: string[];
+  bias_monitoring: {
+    enabled: boolean;
+    review_cadence: string;
+    reviewer: string;
+  };
+  advisory_notice: string;
+}
+
+/** 11. onboarding_track.json — member onboarding tracks per class. */
+export interface OnboardingTrack {
+  org_id: string;
+  schema_version: string;
+  tracks: Array<{
+    track_id: string;
+    member_class: "delivery_member" | "business_member";
+    track_name: string;
+    stages: Array<{
+      stage_id: string;
+      name: string;
+      required: boolean;
+      steps: Array<{
+        step_id: string;
+        name: string;
+        type: "document" | "certification" | "payment" | "training" | "verification" | "agreement" | "setup";
+        description: string;
+        blocking: boolean;
+      }>;
+      completion_criteria: string;
+    }>;
+    obligations_on_completion: string[];
+    advisory_notice: string;
+  }>;
+}
+
+/** 12. professional_review_manifest.json — required professional sign-offs before go-live. */
+export interface ProfessionalReviewManifest {
+  org_id: string;
+  schema_version: string;
+  advisory_statement: string;
+  review_items: Array<{
+    id: string;
+    category: "legal" | "financial" | "insurance" | "regulatory" | "food_safety" | "labor" | "technology" | "governance";
+    discipline: string;
+    reviewer_type: string;
+    scope: string;
+    artifacts_covered: string[];
+    status: "required" | "under_review" | "approved";
+    reviewer_name: string | null;
+    review_date: string | null;
+    notes: string | null;
+  }>;
+  go_live_gate: {
+    requires_all_approved: boolean;
+    minimum_required_categories: string[];
+  };
+}
+
 /** Discriminated mapping from artifact type to its payload shape. */
 export interface ArtifactPayloadMap {
   business_profile: BusinessProfile;
@@ -217,6 +398,12 @@ export interface ArtifactPayloadMap {
   launch_plan: Record<string, unknown>;
   tooling_plan: Record<string, unknown>;
   financial_policy: Record<string, unknown>;
+  service_catalog: ServiceCatalog;
+  member_interaction_protocol: MemberInteractionProtocol;
+  earnings_distribution_model: EarningsDistributionModel;
+  dispute_resolution_protocol: DisputeResolutionProtocol;
+  onboarding_track: OnboardingTrack;
+  professional_review_manifest: ProfessionalReviewManifest;
 }
 
 export type ArtifactPayload = ArtifactPayloadMap[ArtifactType];

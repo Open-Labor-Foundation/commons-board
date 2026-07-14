@@ -27,6 +27,16 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    heading: "Cooperative",
+    items: [
+      { href: "/service-catalog",   label: "Service Catalog" },
+      { href: "/member-protocol",   label: "How We Operate" },
+      { href: "/earnings",          label: "Earnings Model" },
+      { href: "/disputes",          label: "Disputes" },
+      { href: "/member-onboarding", label: "Member Onboarding" },
+    ],
+  },
+  {
     heading: "Team",
     items: [
       { href: "/org",     label: "Board Roster" },

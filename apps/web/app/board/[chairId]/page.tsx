@@ -261,6 +261,13 @@ export default function ChairDetailPage() {
             <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>Ask {chair.name}</p>
             <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Replies route to the {chair.domain} domain</p>
           </div>
+          {(chair.domain === "legal" || chair.domain === "finance") && (
+            <div style={{ padding: "8px 14px", background: "#fefce8", borderBottom: "1px solid #fde68a", flexShrink: 0 }}>
+              <p style={{ fontSize: 11, color: "#92400e", margin: 0, lineHeight: 1.5 }}>
+                <strong>Advisory only.</strong> Outputs from this chair are research and analysis, not {chair.domain === "legal" ? "legal advice" : "financial advice"}. All {chair.domain === "legal" ? "legal, labor classification, and compliance" : "financial, tax, and distribution"} matters require review and sign-off by a qualified professional before any operational or legal reliance.
+              </p>
+            </div>
+          )}
 
           <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
             {chatMessages.length === 0 && (

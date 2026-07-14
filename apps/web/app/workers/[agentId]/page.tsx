@@ -314,6 +314,13 @@ export default function WorkerDetailPage() {
               Routed through {worker.chair.name} · {worker.chair.domain} domain
             </p>
           </div>
+          {(worker.chair.domain === "legal" || worker.chair.domain === "finance") && (
+            <div style={{ padding: "8px 14px", background: "#fefce8", borderBottom: "1px solid #fde68a", flexShrink: 0 }}>
+              <p style={{ fontSize: 11, color: "#92400e", margin: 0, lineHeight: 1.5 }}>
+                <strong>Advisory only.</strong> This worker&apos;s outputs are research and analysis, not {worker.chair.domain === "legal" ? "legal advice" : "financial advice"}. Review and professional sign-off required before any reliance.
+              </p>
+            </div>
+          )}
 
           <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
             {chatMessages.length === 0 && (

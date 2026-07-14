@@ -22,7 +22,13 @@ const SCHEMA_FILES: Record<ArtifactType, string> = {
   venture_profile: "venture_profile.schema.json",
   launch_plan: "launch_plan.schema.json",
   tooling_plan: "tooling_plan.schema.json",
-  financial_policy: "financial_policy.schema.json"
+  financial_policy: "financial_policy.schema.json",
+  service_catalog: "service_catalog.schema.json",
+  member_interaction_protocol: "member_interaction_protocol.schema.json",
+  earnings_distribution_model: "earnings_distribution_model.schema.json",
+  dispute_resolution_protocol: "dispute_resolution_protocol.schema.json",
+  onboarding_track: "onboarding_track.schema.json",
+  professional_review_manifest: "professional_review_manifest.schema.json",
 };
 
 const validators = new Map<ArtifactType, ValidateFunction>();
