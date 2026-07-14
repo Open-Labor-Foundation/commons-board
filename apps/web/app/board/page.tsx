@@ -22,6 +22,7 @@ type BoardRequest = {
   created_at: string;
   updated_at: string;
   commons_crew_dispatch?: CommonsCrewDispatchState | null;
+  auto_dispatch_to_commons_crew?: boolean;
 };
 
 type CadenceBrief = {
@@ -82,6 +83,13 @@ export default function BoardPage() {
   async function decideDispatch(id: string, decision: "approved" | "denied") {
     setActing(id + ":dispatch-" + decision);
     await apiPost(`/api/v1/board/requests/${id}/dispatch-to-commons-crew/decision`, { decision });
+    setActing(null);
+    load();
+  }
+
+  async function setAutoDispatch(id: string, value: boolean) {
+    setActing(id + ":auto-dispatch");
+    await apiPatch(`/api/v1/board/requests/${id}`, { auto_dispatch_to_commons_crew: value });
     setActing(null);
     load();
   }
@@ -154,6 +162,17 @@ export default function BoardPage() {
                   <div style={{ background: "var(--surface-overlay)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "14px", fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)" }}>
                     {r.request}
                   </div>
+                  {["submitted", "triaged", "planned"].includes(r.status) && (
+                    <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-secondary)", cursor: acting !== null ? "default" : "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={r.auto_dispatch_to_commons_crew ?? false}
+                        disabled={acting !== null}
+                        onChange={e => setAutoDispatch(r.id, e.target.checked)}
+                      />
+                      Auto-propose commons-crew dispatch when approved
+                    </label>
+                  )}
                   <div onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>commons-crew dispatch</span>
                     {!r.commons_crew_dispatch && (

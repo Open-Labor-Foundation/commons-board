@@ -11,7 +11,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
   SpecialistDefinition,
@@ -102,17 +102,63 @@ function dbPath(): string {
 // more established axis and the common case.
 const OVERLAY_DIR_NAMES = ["naics-overlays", "function-overlays"] as const;
 
+// Every real section_slug/agent_slug in the catalog is lowercase
+// alphanumeric segments joined by single hyphens (see the examples in the
+// comment above) -- this is the actual, checkable shape those values take,
+// not an arbitrary restriction. Reject anything else before it reaches
+// path.join/template-string path construction below: sectionSlug/agentSlug
+// can originate from an untrusted request body (the practitioner-correction
+// route), and neither path.join nor a template literal strips ".." segments
+// -- an unvalidated value here is a real path-traversal primitive, not a
+// theoretical one.
+const CATALOG_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+export function isValidCatalogSlug(slug: string): boolean {
+  return CATALOG_SLUG_PATTERN.test(slug);
+}
+
+class InvalidCatalogSlugError extends Error {
+  constructor(label: string, value: string) {
+    super(`Invalid ${label}: must be lowercase alphanumeric segments joined by hyphens.`);
+    this.name = "InvalidCatalogSlugError";
+    void value; // never included in the message -- avoid echoing attacker-controlled input back
+  }
+}
+
+function assertValidSlugs(sectionSlug: string, agentSlug: string): void {
+  if (!isValidCatalogSlug(sectionSlug)) throw new InvalidCatalogSlugError("section_slug", sectionSlug);
+  if (!isValidCatalogSlug(agentSlug)) throw new InvalidCatalogSlugError("agent_slug", agentSlug);
+}
+
+// Second, independent gate on top of assertValidSlugs' charset check:
+// resolve the constructed path to an absolute path and verify it's still
+// inside catalog/, the same canonical check for any path built from
+// untrusted segments regardless of what the charset allowlist above
+// already rules out. Belt and suspenders deliberately, not redundancy --
+// this is the specific pattern that makes "no path traversal" independently
+// verifiable from the path construction itself, not just from trusting the
+// upstream validation ran.
+function assertWithinCatalogRoot(candidate: string): string {
+  const catalogRoot = resolve(lcRoot(), "catalog") + sep;
+  const resolved = resolve(candidate);
+  if (!resolved.startsWith(catalogRoot)) {
+    throw new Error("Resolved catalog path escapes catalog/ -- rejected.");
+  }
+  return candidate;
+}
+
 /** Which overlay axis a section_slug/agent_slug pair actually resolves under, or the naics-overlays default if neither exists. */
 export function resolveOverlayDirName(sectionSlug: string, agentSlug: string): (typeof OVERLAY_DIR_NAMES)[number] {
+  assertValidSlugs(sectionSlug, agentSlug);
   for (const overlayDirName of OVERLAY_DIR_NAMES) {
-    const candidate = join(lcRoot(), "catalog", overlayDirName, sectionSlug, agentSlug, "spec.yaml");
+    const candidate = assertWithinCatalogRoot(join(lcRoot(), "catalog", overlayDirName, sectionSlug, agentSlug, "spec.yaml"));
     if (existsSync(candidate)) return overlayDirName;
   }
   return "naics-overlays";
 }
 
 export function specYamlPath(sectionSlug: string, agentSlug: string): string {
-  return join(lcRoot(), "catalog", resolveOverlayDirName(sectionSlug, agentSlug), sectionSlug, agentSlug, "spec.yaml");
+  return assertWithinCatalogRoot(join(lcRoot(), "catalog", resolveOverlayDirName(sectionSlug, agentSlug), sectionSlug, agentSlug, "spec.yaml"));
 }
 
 /** Relative catalog_path for API responses -- must match specYamlPath's resolved axis, not always claim naics-overlays. */

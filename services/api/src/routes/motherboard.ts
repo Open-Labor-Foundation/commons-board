@@ -34,6 +34,34 @@ function roadmapKey(orgId: string, requestId: string): string {
   return `board-roadmaps/${orgId}/${requestId}`;
 }
 
+/**
+ * Shared by the explicit POST /dispatch-to-commons-crew route and the
+ * auto_dispatch_to_commons_crew hook on status -> "approved" (see PATCH,
+ * below) -- same proposal logic either way, only the trigger differs.
+ * Still only ever PROPOSES; see proposeDispatchToChair's own doc comment
+ * for why deciding stays a separate, explicit step regardless of how the
+ * proposal itself got triggered.
+ */
+type ProposeOnlyDispatchState = Extract<CommonsCrewDispatchState, { status: "unavailable" } | { status: "awaiting_decision" }>;
+
+async function attemptProposeDispatch(orgId: string, request: BoardRequestRecord): Promise<ProposeOnlyDispatchState> {
+  const now = new Date().toISOString();
+  const blueprintRecord = getArtifact(orgId, "agent_blueprint");
+  const blueprintChairs = (blueprintRecord?.payload as { chairs?: Array<{ chair_id: string; commons_crew_run_id?: string | null }> } | undefined)?.chairs ?? [];
+  const chair = blueprintChairs.find((c) => c.chair_id === request.target_chair_id);
+
+  if (!chair?.commons_crew_run_id) {
+    return { status: "unavailable", reason: "target chair has no registered commons-crew run", attempted_at: now };
+  }
+
+  const proposed = await proposeDispatchToChair({ runId: chair.commons_crew_run_id, workDescription: request.request });
+  if (!proposed) {
+    return { status: "unavailable", reason: "commons-crew is not reachable or the proposal failed", attempted_at: now };
+  }
+
+  return { status: "awaiting_decision", approval_id: proposed.approvalId, proposal_id: proposed.proposalId, run_id: proposed.runId, proposed_at: now };
+}
+
 /** POST /api/v1/board/requests */
 motherboardRouter.post("/requests", requireRole(["admin", "operator", "member"]), (req: Request, res: Response) => {
   const ctx = req.ctx!;
@@ -86,6 +114,7 @@ motherboardRouter.post("/requests", requireRole(["admin", "operator", "member"])
     success_criteria: Array.isArray(body.success_criteria) ? body.success_criteria : [],
     dependency_ids: Array.isArray(body.dependency_ids) ? body.dependency_ids : [],
     approval_required: body.approval_required ?? false,
+    auto_dispatch_to_commons_crew: body.auto_dispatch_to_commons_crew ?? false,
     risk_level: body.risk_level ?? "low",
     created_at: now,
     updated_at: now
@@ -136,8 +165,18 @@ motherboardRouter.get("/requests/:id", (req: Request, res: Response) => {
   res.status(200).json({ request: record });
 });
 
-/** PATCH /api/v1/board/requests/:id */
-motherboardRouter.patch("/requests/:id", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+/**
+ * PATCH /api/v1/board/requests/:id
+ *
+ * When a request opted in at creation (auto_dispatch_to_commons_crew) and
+ * its status transitions to "approved", automatically proposes a
+ * commons-crew dispatch -- proposing is the safe half (see
+ * attemptProposeDispatch); the actual decision still requires the
+ * separate, explicit POST .../dispatch-to-commons-crew/decision. Requests
+ * that didn't opt in behave exactly as before -- this is additive, not a
+ * default behavior change for existing requests or callers.
+ */
+motherboardRouter.patch("/requests/:id", requireRole(["admin", "operator"]), async (req: Request, res: Response) => {
   const ctx = req.ctx!;
   const all = readJson<BoardRequestRecord[]>(requestsKey(ctx.workspaceId), []);
   const idx = all.findIndex((r) => r.id === req.params.id);
@@ -164,11 +203,36 @@ motherboardRouter.patch("/requests/:id", requireRole(["admin", "operator"]), (re
     success_criteria: Array.isArray(body.success_criteria) ? body.success_criteria : existing.success_criteria,
     approval_required: body.approval_required ?? existing.approval_required,
     risk_level: body.risk_level ?? existing.risk_level,
+    auto_dispatch_to_commons_crew: body.auto_dispatch_to_commons_crew ?? existing.auto_dispatch_to_commons_crew,
     updated_at: new Date().toISOString()
   };
 
+  const enteringApproved = updated.status === "approved" && existing.status !== "approved";
+  if (enteringApproved && updated.auto_dispatch_to_commons_crew && !updated.commons_crew_dispatch) {
+    updated.commons_crew_dispatch = await attemptProposeDispatch(ctx.workspaceId, updated);
+  }
+
   all[idx] = updated;
   writeJsonAtomic(requestsKey(ctx.workspaceId), all);
+
+  if (enteringApproved && updated.commons_crew_dispatch?.status === "awaiting_decision") {
+    appendEvent({
+      event_id: randomUUID(),
+      org_id: ctx.workspaceId,
+      event_type: "board_request_commons_crew_dispatch_proposed",
+      actor: ctx.userId,
+      artifact_type: null,
+      artifact_id: null,
+      details: {
+        request_id: updated.id,
+        approval_id: updated.commons_crew_dispatch.approval_id,
+        proposal_id: updated.commons_crew_dispatch.proposal_id,
+        run_id: updated.commons_crew_dispatch.run_id,
+        trigger: "auto_dispatch_on_approval"
+      },
+      at: updated.updated_at
+    } satisfies GovernanceEvent);
+  }
 
   const now2 = new Date().toISOString();
   appendEvent({
@@ -276,38 +340,15 @@ motherboardRouter.post("/requests/:id/dispatch-to-commons-crew", requireRole(["a
     return;
   }
   const request = all[idx];
+  const dispatch = await attemptProposeDispatch(ctx.workspaceId, request);
   const now = new Date().toISOString();
-
-  const blueprintRecord = getArtifact(ctx.workspaceId, "agent_blueprint");
-  const blueprintChairs = (blueprintRecord?.payload as { chairs?: Array<{ chair_id: string; commons_crew_run_id?: string | null }> } | undefined)?.chairs ?? [];
-  const chair = blueprintChairs.find((c) => c.chair_id === request.target_chair_id);
-
-  if (!chair?.commons_crew_run_id) {
-    const dispatch: CommonsCrewDispatchState = { status: "unavailable", reason: "target chair has no registered commons-crew run", attempted_at: now };
-    all[idx] = { ...request, commons_crew_dispatch: dispatch, updated_at: now };
-    writeJsonAtomic(requestsKey(ctx.workspaceId), all);
-    res.status(422).json({ error: "target chair has no registered commons-crew run", request: all[idx] });
-    return;
-  }
-
-  const proposed = await proposeDispatchToChair({ runId: chair.commons_crew_run_id, workDescription: request.request });
-  if (!proposed) {
-    const dispatch: CommonsCrewDispatchState = { status: "unavailable", reason: "commons-crew is not reachable or the proposal failed", attempted_at: now };
-    all[idx] = { ...request, commons_crew_dispatch: dispatch, updated_at: now };
-    writeJsonAtomic(requestsKey(ctx.workspaceId), all);
-    res.status(422).json({ error: "commons-crew dispatch proposal failed", request: all[idx] });
-    return;
-  }
-
-  const dispatch: CommonsCrewDispatchState = {
-    status: "awaiting_decision",
-    approval_id: proposed.approvalId,
-    proposal_id: proposed.proposalId,
-    run_id: proposed.runId,
-    proposed_at: now
-  };
   all[idx] = { ...request, commons_crew_dispatch: dispatch, updated_at: now };
   writeJsonAtomic(requestsKey(ctx.workspaceId), all);
+
+  if (dispatch.status === "unavailable") {
+    res.status(422).json({ error: dispatch.reason, request: all[idx] });
+    return;
+  }
 
   appendEvent({
     event_id: randomUUID(),
@@ -316,7 +357,7 @@ motherboardRouter.post("/requests/:id/dispatch-to-commons-crew", requireRole(["a
     actor: ctx.userId,
     artifact_type: null,
     artifact_id: null,
-    details: { request_id: request.id, approval_id: proposed.approvalId, proposal_id: proposed.proposalId, run_id: proposed.runId },
+    details: { request_id: request.id, approval_id: dispatch.approval_id, proposal_id: dispatch.proposal_id, run_id: dispatch.run_id },
     at: now
   } satisfies GovernanceEvent);
 
@@ -358,6 +399,7 @@ motherboardRouter.post("/requests/:id/dispatch-to-commons-crew/decision", requir
     runId: dispatch.run_id,
     decision: body.decision,
     actorUserId: ctx.userId,
+    orgContext: ctx.workspaceId,
     comment: body.comment
   });
 

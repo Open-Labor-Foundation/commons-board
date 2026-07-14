@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, apiPost, relativeTime } from "../../lib/api";
 
+type LaborCommonsRef = {
+  specialist_slug: string;
+  catalog_path: string;
+  role: "primary" | "supporting";
+  pinned_ref: string | null;
+};
+
 type Chair = {
   chair_id: string;
   name: string;
@@ -11,7 +18,14 @@ type Chair = {
   scope: { owns: string[]; escalates_to: string[] };
   worker_agents: Array<{ agent_id: string; name: string; task_scope: string[] }>;
   approval_required_for: string[];
+  labor_commons_refs?: LaborCommonsRef[];
 };
+
+// catalog_path is catalog/{naics-overlays|function-overlays}/{section_slug}/{agent_slug}/spec.yaml
+function sectionSlugFromCatalogPath(catalogPath: string): string | null {
+  const match = catalogPath.match(/^catalog\/(?:naics-overlays|function-overlays)\/([^/]+)\/[^/]+\/spec\.yaml$/);
+  return match ? match[1] : null;
+}
 
 type AgentBlueprint = { payload: { chairs: Chair[] } };
 
@@ -55,6 +69,10 @@ export default function BoardRosterPage() {
   const [submittingGap, setSubmittingGap] = useState(false);
   const [msg, setMsg] = useState("");
 
+  const [correctionForm, setCorrectionForm] = useState({ refKey: "", fieldPath: "", proposedValue: "", justification: "" });
+  const [submittingCorrection, setSubmittingCorrection] = useState(false);
+  const [correctionMsg, setCorrectionMsg] = useState<{ text: string; url?: string } | null>(null);
+
   const load = useCallback(async () => {
     const [bp, g] = await Promise.all([
       apiFetch<AgentBlueprint>("/api/v1/artifacts/agent_blueprint/latest"),
@@ -67,6 +85,40 @@ export default function BoardRosterPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const specialistOptions = chairs.flatMap(chair =>
+    (chair.labor_commons_refs ?? []).flatMap(ref => {
+      const sectionSlug = sectionSlugFromCatalogPath(ref.catalog_path);
+      if (!sectionSlug) return [];
+      return [{
+        key: `${sectionSlug}::${ref.specialist_slug}`,
+        sectionSlug,
+        agentSlug: ref.specialist_slug,
+        label: `${chair.name} — ${ref.specialist_slug.replace(/-/g, " ")}${ref.role === "supporting" ? " (supporting)" : ""}`,
+      }];
+    })
+  );
+
+  async function submitCorrection() {
+    const [sectionSlug, agentSlug] = correctionForm.refKey.split("::");
+    const fieldPath = correctionForm.fieldPath.split(".").map(s => s.trim()).filter(Boolean);
+    if (!sectionSlug || !agentSlug || fieldPath.length === 0 || !correctionForm.proposedValue.trim() || !correctionForm.justification.trim()) return;
+    setSubmittingCorrection(true);
+    const { data, status } = await apiPost<{ pr_url: string; branch: string }>("/api/v1/org/specialist-corrections", {
+      section_slug: sectionSlug,
+      agent_slug: agentSlug,
+      field_path: fieldPath,
+      proposed_value: correctionForm.proposedValue.trim(),
+      justification: correctionForm.justification.trim(),
+    });
+    setSubmittingCorrection(false);
+    if (data?.pr_url) {
+      setCorrectionMsg({ text: "Correction proposed — opened a real PR against labor-commons for review.", url: data.pr_url });
+      setCorrectionForm({ refKey: "", fieldPath: "", proposedValue: "", justification: "" });
+    } else {
+      setCorrectionMsg({ text: status === 422 ? "Couldn't open the correction — the field path may not exist, or labor-commons isn't configured for corrections right now." : "Something went wrong submitting the correction." });
+    }
+  }
 
   async function submitGap() {
     if (!gapDesc.trim()) return;
@@ -247,6 +299,66 @@ export default function BoardRosterPage() {
           </div>
         </div>
       </div>
+
+      {/* Propose a correction to a specialist */}
+      {specialistOptions.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>See something wrong in a specialist?</h3>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+            If you know this profession and a specialist's definition is missing something or wrong, propose a
+            correction. This opens a real, human-reviewed pull request against labor-commons — it never applies
+            automatically.
+          </p>
+
+          {correctionMsg && (
+            <p style={{ fontSize: 13, color: correctionMsg.url ? "var(--success)" : "#dc2626", margin: "0 0 12px" }}>
+              {correctionMsg.text}{" "}
+              {correctionMsg.url && <a href={correctionMsg.url} target="_blank" rel="noreferrer" style={{ color: "var(--brand)" }}>View the PR</a>}
+            </p>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 520 }}>
+            <select
+              value={correctionForm.refKey}
+              onChange={(e) => setCorrectionForm(f => ({ ...f, refKey: e.target.value }))}
+              style={{ padding: "7px 10px", fontSize: 13 }}
+            >
+              <option value="">Select a specialist…</option>
+              {specialistOptions.map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+            </select>
+            <input
+              type="text"
+              value={correctionForm.fieldPath}
+              onChange={(e) => setCorrectionForm(f => ({ ...f, fieldPath: e.target.value }))}
+              placeholder="Field to correct, dot-separated (e.g. metadata.specialty_boundary)"
+              style={{ padding: "7px 10px", fontSize: 13, width: "100%", boxSizing: "border-box" }}
+            />
+            <textarea
+              value={correctionForm.proposedValue}
+              onChange={(e) => setCorrectionForm(f => ({ ...f, proposedValue: e.target.value }))}
+              placeholder="What should this field say instead?"
+              rows={2}
+              style={{ resize: "vertical", padding: "8px 10px", fontSize: 13, width: "100%", boxSizing: "border-box" }}
+            />
+            <textarea
+              value={correctionForm.justification}
+              onChange={(e) => setCorrectionForm(f => ({ ...f, justification: e.target.value }))}
+              placeholder="Why? (this goes to the labor-commons maintainer reviewing the PR)"
+              rows={2}
+              style={{ resize: "vertical", padding: "8px 10px", fontSize: 13, width: "100%", boxSizing: "border-box" }}
+            />
+            <div>
+              <button
+                onClick={submitCorrection}
+                disabled={submittingCorrection || !correctionForm.refKey || !correctionForm.fieldPath.trim() || !correctionForm.proposedValue.trim() || !correctionForm.justification.trim()}
+                style={{ background: "var(--brand)", color: "#fff", padding: "7px 14px", fontSize: 13, fontWeight: 600 }}
+              >
+                {submittingCorrection ? "Proposing…" : "Propose correction"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -61,6 +61,7 @@ export type GovernanceEventType =
   | "board_roadmap_created"
   | "board_request_commons_crew_dispatch_proposed"
   | "board_request_commons_crew_dispatch_decided"
+  | "specialist_correction_proposed"
   | "board_chat_completed"
   | "launch_session_started"
   | "launch_artifacts_written"

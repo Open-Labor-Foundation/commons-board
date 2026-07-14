@@ -18,7 +18,8 @@ import { requireContext, requireRole } from "../lib/auth.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { resolveAllChairs, applyResolutionsToBlueprint, type BlueprintResolution } from "../services/specialist-resolver.js";
-import { loadGaps, updateGap, reportGap } from "../lib/labor-commons-client.js";
+import { loadGaps, updateGap, reportGap, isValidCatalogSlug } from "../lib/labor-commons-client.js";
+import { proposeSpecCorrection } from "../lib/labor-commons-correction.js";
 import { runCatalogSync } from "../workers/catalog-sync.js";
 
 export const orgRouter = Router();
@@ -330,6 +331,74 @@ orgRouter.post("/gaps/:gap_id/submit", requireRole(["admin", "operator"]), (req:
   const { gap_id } = req.params;
   updateGap(orgId, gap_id, { submitted_to_labor_commons: true });
   res.status(200).json({ gap_id, submitted_to_labor_commons: true });
+});
+
+/**
+ * POST /api/v1/org/specialist-corrections
+ *
+ * labor-commons only grows one way today -- AI inference against the
+ * NAICS backlog. This is the other intended growth path: a practitioner
+ * using a specialist notices something wrong and proposes a correction.
+ * Never merges on its own -- it opens a real PR against labor-commons for
+ * human review, subject to the same certification gate and independent
+ * review as any other catalog change (GOVERNANCE.md). "member" role can
+ * propose (this is meant for practitioners, not just admins); it cannot
+ * decide anything -- that authority stays with labor-commons' own
+ * maintainers reviewing the PR, entirely outside commons-board.
+ */
+orgRouter.post("/specialist-corrections", requireRole(["admin", "operator", "member"]), async (req: Request, res: Response) => {
+  const ctx = req.ctx!;
+  const body = req.body as {
+    section_slug?: string;
+    agent_slug?: string;
+    field_path?: string[];
+    proposed_value?: string;
+    justification?: string;
+  };
+
+  if (!body.section_slug || !body.agent_slug || !Array.isArray(body.field_path) || body.field_path.length === 0) {
+    res.status(400).json({ error: "section_slug, agent_slug, and a non-empty field_path are required" });
+    return;
+  }
+  // section_slug/agent_slug flow into filesystem path construction and a git
+  // branch/commit downstream (labor-commons-correction.ts) -- reject
+  // anything that isn't a real catalog slug shape before it gets there,
+  // rather than relying solely on that module's own defense-in-depth check.
+  if (!isValidCatalogSlug(body.section_slug) || !isValidCatalogSlug(body.agent_slug)) {
+    res.status(400).json({ error: "section_slug and agent_slug must be lowercase alphanumeric segments joined by hyphens, matching a real catalog slug" });
+    return;
+  }
+  if (!body.proposed_value?.trim() || !body.justification?.trim()) {
+    res.status(400).json({ error: "proposed_value and justification are required" });
+    return;
+  }
+
+  const result = await proposeSpecCorrection({
+    sectionSlug: body.section_slug,
+    agentSlug: body.agent_slug,
+    fieldPath: body.field_path,
+    proposedValue: body.proposed_value,
+    justification: body.justification,
+    submittedBy: ctx.userId
+  });
+
+  if (!result) {
+    res.status(422).json({ error: "could not open a correction PR -- labor-commons is not configured for corrections, the field path doesn't exist, or the PR could not be created" });
+    return;
+  }
+
+  appendEvent({
+    event_id: randomUUID(),
+    org_id: ctx.workspaceId,
+    event_type: "specialist_correction_proposed",
+    actor: ctx.userId,
+    artifact_type: null,
+    artifact_id: null,
+    details: { section_slug: body.section_slug, agent_slug: body.agent_slug, field_path: body.field_path.join("."), pr_url: result.prUrl },
+    at: new Date().toISOString()
+  } satisfies GovernanceEvent);
+
+  res.status(201).json({ pr_url: result.prUrl, branch: result.branch });
 });
 
 /** GET /api/v1/org/catalog-sync */

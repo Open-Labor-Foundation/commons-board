@@ -1,7 +1,7 @@
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import { proposeDispatchToChair, submitDispatchDecision } from "../lib/commons-crew-client.js";
+import { proposeDispatchToChair, submitDispatchDecision, ensureBoardMemberIdentity, sanitizeForLog } from "../lib/commons-crew-client.js";
 
 /**
  * The core safety property under test: proposeDispatchToChair must NEVER
@@ -15,10 +15,16 @@ describe("commons-crew-client dispatch (propose + decision)", () => {
   let baseUrl: string;
   let requestLog: Array<{ method: string; url: string; body: unknown }>;
   let pendingApprovalOnRun: { id: string; taskId: string; status: string } | null;
+  let workspaceUsers: Array<{ id: string; emailOrLogin: string }>;
+  let workspaceMemberships: Array<{ userId: string; status: string }>;
+  let nextUserId: number;
 
   beforeEach(async () => {
     requestLog = [];
     pendingApprovalOnRun = { id: "approval-seeded", taskId: "task-1", status: "pending" };
+    workspaceUsers = [];
+    workspaceMemberships = [];
+    nextUserId = 1;
 
     server = createServer((req, res) => {
       const chunks: Buffer[] = [];
@@ -47,6 +53,31 @@ describe("commons-crew-client dispatch (propose + decision)", () => {
         if (method === "POST" && url === "/api/actions/proposals") {
           res.writeHead(201, { "content-type": "application/json" });
           res.end(JSON.stringify({ id: "proposal-1" }));
+          return;
+        }
+        if (method === "GET" && url === "/api/workspace") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ workspace: { id: "workspace-1" }, users: workspaceUsers, memberships: workspaceMemberships }));
+          return;
+        }
+        if (method === "POST" && url === "/api/users") {
+          const emailOrLogin = (body as { emailOrLogin: string }).emailOrLogin;
+          if (workspaceUsers.some((u) => u.emailOrLogin === emailOrLogin)) {
+            res.writeHead(409, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: "user_identity_conflict" }));
+            return;
+          }
+          const user = { id: `user-${nextUserId++}`, emailOrLogin };
+          workspaceUsers.push(user);
+          res.writeHead(201, { "content-type": "application/json" });
+          res.end(JSON.stringify({ user }));
+          return;
+        }
+        if (method === "POST" && /^\/api\/workspaces\/[^/]+\/memberships$/.test(url)) {
+          const userId = (body as { userId: string }).userId;
+          workspaceMemberships.push({ userId, status: "active" });
+          res.writeHead(201, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
           return;
         }
         if (method === "POST" && /^\/api\/approvals\/[^/]+\/decision$/.test(url)) {
@@ -116,13 +147,45 @@ describe("commons-crew-client dispatch (propose + decision)", () => {
     assert.equal(requestLog.length, 0);
   });
 
-  test("submitDispatchDecision requires an explicit decision and relays exactly that decision", async () => {
+  test("ensureBoardMemberIdentity creates a user and membership on first call", async () => {
+    const userId = await ensureBoardMemberIdentity({ orgContext: "acme", userId: "user-42", displayName: "Jane" });
+    assert.ok(userId);
+    assert.equal(workspaceUsers.length, 1);
+    assert.equal(workspaceUsers[0].emailOrLogin, "acme:user-42@commons-board.local");
+    assert.equal(workspaceMemberships.length, 1);
+    assert.equal(workspaceMemberships[0].userId, userId);
+
+    const createUserCall = requestLog.find((r) => r.url === "/api/users");
+    assert.equal((createUserCall?.body as { role?: string })?.role, "supporting");
+    const membershipCall = requestLog.find((r) => /\/memberships$/.test(r.url));
+    assert.deepEqual((membershipCall?.body as { permissions?: string[] })?.permissions, ["approval_decision"]);
+  });
+
+  test("ensureBoardMemberIdentity is idempotent: second call reuses the existing user and membership", async () => {
+    const first = await ensureBoardMemberIdentity({ orgContext: "acme", userId: "user-42" });
+    requestLog = [];
+    const second = await ensureBoardMemberIdentity({ orgContext: "acme", userId: "user-42" });
+    assert.equal(first, second);
+    assert.equal(workspaceUsers.length, 1, "must not create a second user for the same org+userId");
+    assert.equal(requestLog.some((r) => r.method === "POST" && r.url === "/api/users"), false, "already exists -- should not re-create");
+    assert.equal(requestLog.some((r) => /\/memberships$/.test(r.url)), false, "already a member -- should not re-add");
+  });
+
+  test("ensureBoardMemberIdentity namespaces by orgContext so two orgs' same userId don't collide", async () => {
+    const orgAUser = await ensureBoardMemberIdentity({ orgContext: "org-a", userId: "user-1" });
+    const orgBUser = await ensureBoardMemberIdentity({ orgContext: "org-b", userId: "user-1" });
+    assert.notEqual(orgAUser, orgBUser);
+    assert.equal(workspaceUsers.length, 2);
+  });
+
+  test("submitDispatchDecision uses the bridged real identity, not the fallback", async () => {
     const approved = await submitDispatchDecision({
       approvalId: "approval-seeded",
       proposalId: "proposal-1",
       runId: "run-1",
       decision: "approved",
-      actorUserId: "user-42"
+      actorUserId: "user-42",
+      orgContext: "acme"
     });
     assert.equal(approved?.decision, "approved");
     assert.equal(approved?.childRunId, "child-run-1");
@@ -130,11 +193,43 @@ describe("commons-crew-client dispatch (propose + decision)", () => {
 
     const decisionCall = requestLog.find((r) => /\/api\/approvals\/.+\/decision/.test(r.url));
     assert.equal((decisionCall?.body as { decision?: string })?.decision, "approved");
-    // commons-crew has no concept of commons-board's per-org actor identity yet
-    // (workspace_membership_required rejects anything but its own seeded member) --
-    // see the COMMONS_CREW_DEFAULT_ACTOR comment in commons-crew-client.ts.
-    assert.equal((decisionCall?.body as { actorUserId?: string })?.actorUserId, "user_primary");
+    const decidingActor = (decisionCall?.body as { actorUserId?: string })?.actorUserId;
+    assert.notEqual(decidingActor, "user_primary", "should use the bridged real identity, not the fallback");
+    assert.equal(decidingActor, workspaceUsers[0]?.id);
     assert.ok(requestLog.some((r) => /\/api\/actions\/.+\/execute/.test(r.url)), "approved decisions must execute");
+  });
+
+  test("submitDispatchDecision falls back to user_primary when the identity bridge can't run", async () => {
+    delete process.env.CB_COMMONS_CREW_URL; // no config at all -> ensureBoardMemberIdentity returns null
+    // Re-point directly at the test server for the decision call itself, simulating
+    // config becoming available only after the identity-bridge attempt already failed.
+    process.env.CB_COMMONS_CREW_URL = baseUrl;
+    const originalFetch = globalThis.fetch;
+    let bridgeAttempted = false;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (typeof url === "string" && url.endsWith("/api/workspace")) {
+        bridgeAttempted = true;
+        return { ok: false, status: 500, json: async () => ({}) } as Response;
+      }
+      return originalFetch(url, init);
+    }) as typeof fetch;
+
+    try {
+      const approved = await submitDispatchDecision({
+        approvalId: "approval-seeded",
+        proposalId: "proposal-1",
+        runId: "run-1",
+        decision: "approved",
+        actorUserId: "user-42",
+        orgContext: "acme"
+      });
+      assert.equal(approved?.decision, "approved");
+      assert.ok(bridgeAttempted, "the bridge should still be attempted");
+      const decisionCall = requestLog.find((r) => /\/api\/approvals\/.+\/decision/.test(r.url));
+      assert.equal((decisionCall?.body as { actorUserId?: string })?.actorUserId, "user_primary");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("submitDispatchDecision with decision 'denied' never calls execute", async () => {
@@ -143,12 +238,32 @@ describe("commons-crew-client dispatch (propose + decision)", () => {
       proposalId: "proposal-1",
       runId: "run-1",
       decision: "denied",
-      actorUserId: "user-42"
+      actorUserId: "user-42",
+      orgContext: "acme"
     });
     assert.equal(denied?.decision, "denied");
     assert.equal(denied?.childRunId, null);
 
     const hitExecute = requestLog.some((r) => /\/api\/actions\/.+\/execute/.test(r.url));
     assert.equal(hitExecute, false, "a denied decision must never execute");
+  });
+});
+
+// CodeQL flagged ensureBoardMemberIdentity's console.error calls: orgContext/
+// userId come from client-supplied request headers, not a server-verified
+// session, and flowed unsanitized into log messages -- a crafted value could
+// forge or split a log line. sanitizeForLog is the fix; these prove it
+// actually strips the characters that make that possible.
+describe("sanitizeForLog", () => {
+  test("strips newlines that could forge a fake log line", () => {
+    assert.equal(sanitizeForLog("acme:user\n[commons-crew-client] fake success line"), "acme:user[commons-crew-client] fake success line");
+  });
+
+  test("strips carriage returns and other control characters", () => {
+    assert.equal(sanitizeForLog("a\r\nb\x00c\x1bd\x7fe"), "abcde");
+  });
+
+  test("leaves an ordinary value unchanged", () => {
+    assert.equal(sanitizeForLog("acme:user-42@commons-board.local"), "acme:user-42@commons-board.local");
   });
 });
