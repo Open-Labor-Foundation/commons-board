@@ -4,6 +4,7 @@ import { searchBySections, getSpecialist } from "../../lib/labor-commons-client.
 import { getProviderConcurrency, mapConcurrent } from "../../lib/model-client.js";
 import { completeJsonWithRetry } from "../../lib/model-json.js";
 import { registerChair, syncOrgAutonomyTier, sanitizeForLog, type CommonsCrewChairRole } from "../../lib/commons-crew-client.js";
+import { getArtifact } from "../../lib/artifact-store.js";
 
 // commons-board's onboarding always produces exactly these seven ui_domain
 // values (see CHAIR_CONTEXT_SYSTEM below and its guaranteed-domain fallback
@@ -397,6 +398,56 @@ function approvalKeysForDomain(uiDomain: string): string[] {
   }
 }
 
+type ChairRefsAndWorkers = {
+  labor_commons_refs: Array<{ specialist_slug: string; catalog_path: string; role: "primary" | "supporting"; pinned_ref: null }>;
+  owns: string[];
+  refuses: string[];
+  worker_agents: Array<{ agent_id: string; name: string; labor_commons_ref: string | null; task_scope: string[] }>;
+};
+
+// Turns a chair's selected workers into the catalog-backed refs/scope/agents
+// a blueprint chair needs. Pulled out of buildBlueprintChairs so a single
+// chair's roster can be rebuilt (regenerateChairWorkers below) with the
+// exact same real logic, not a re-implementation of it.
+async function buildChairRefsAndWorkers(
+  chair: ChairContext,
+  chair_id: string,
+  workers: Array<{ slug: string; catalog_path: string }>
+): Promise<ChairRefsAndWorkers> {
+  const refuses: string[] = [];
+  const owns: string[] = [];
+  const labor_commons_refs: ChairRefsAndWorkers["labor_commons_refs"] = [];
+  const worker_agents: ChairRefsAndWorkers["worker_agents"] = [];
+
+  for (let i = 0; i < workers.length; i++) {
+    const { slug, catalog_path } = workers[i];
+    const spec = await getSpecialist(slug).catch(() => null);
+
+    labor_commons_refs.push({ specialist_slug: slug, catalog_path, role: i === 0 ? "primary" : "supporting", pinned_ref: null });
+    worker_agents.push({
+      agent_id: `${chair_id}-worker-${i + 1}`,
+      name: spec?.metadata.name ?? slug,
+      labor_commons_ref: slug,
+      task_scope: (spec?.scope.supported_tasks ?? []).slice(0, 5),
+    });
+
+    if (spec?.metadata.specialty_boundary) {
+      const b = spec.metadata.specialty_boundary.slice(0, 120);
+      if (!owns.includes(b)) owns.push(b);
+    }
+    for (const rule of spec?.scope.out_of_scope_rules ?? []) {
+      if (!refuses.includes(rule)) refuses.push(rule);
+    }
+  }
+
+  if (worker_agents.length === 0) {
+    worker_agents.push({ agent_id: `${chair_id}-worker-1`, name: `${chair.name} Advisor`, labor_commons_ref: null, task_scope: [] });
+    owns.push(chair.function);
+  }
+
+  return { labor_commons_refs, owns, refuses: refuses.slice(0, 10), worker_agents };
+}
+
 async function buildBlueprintChairs(
   selections: WorkerSelection[],
   orgContext: string
@@ -418,42 +469,17 @@ async function buildBlueprintChairs(
     const chair_id = `chair-${chairIdx + 1}`;
     const { chair, workers } = sel;
 
-    const refuses: string[] = [];
+    const { labor_commons_refs, owns, refuses, worker_agents } = await buildChairRefsAndWorkers(chair, chair_id, workers);
+
+    // Only escalate to chairs actually on this board — a raw catalog slug with
+    // no chair backing it isn't something a governance consumer can route to.
     const escalates_to: string[] = [];
-    const owns: string[] = [];
-    const labor_commons_refs: Array<{ specialist_slug: string; catalog_path: string; role: "primary" | "supporting"; pinned_ref: null }> = [];
-    const worker_agents: Array<{ agent_id: string; name: string; labor_commons_ref: string | null; task_scope: string[] }> = [];
-
-    for (let i = 0; i < workers.length; i++) {
-      const { slug, catalog_path } = workers[i];
+    for (const { slug } of workers) {
       const spec = await getSpecialist(slug).catch(() => null);
-
-      labor_commons_refs.push({ specialist_slug: slug, catalog_path, role: i === 0 ? "primary" : "supporting", pinned_ref: null });
-      worker_agents.push({
-        agent_id: `${chair_id}-worker-${i + 1}`,
-        name: spec?.metadata.name ?? slug,
-        labor_commons_ref: slug,
-        task_scope: (spec?.scope.supported_tasks ?? []).slice(0, 5),
-      });
-
-      if (spec?.metadata.specialty_boundary) {
-        const b = spec.metadata.specialty_boundary.slice(0, 120);
-        if (!owns.includes(b)) owns.push(b);
-      }
-      for (const rule of spec?.scope.out_of_scope_rules ?? []) {
-        if (!refuses.includes(rule)) refuses.push(rule);
-      }
       for (const adj of spec?.adjacent_specialties ?? []) {
-        // Only escalate to chairs actually on this board — a raw catalog slug with
-        // no chair backing it isn't something a governance consumer can route to.
         const matchingChair = allChairNames.find((_, idx) => selections[idx].workers.some(w => w.slug === adj));
         if (matchingChair && !escalates_to.includes(matchingChair)) escalates_to.push(matchingChair);
       }
-    }
-
-    if (worker_agents.length === 0) {
-      worker_agents.push({ agent_id: `${chair_id}-worker-1`, name: `${chair.name} Advisor`, labor_commons_ref: null, task_scope: [] });
-      owns.push(chair.function);
     }
 
     // Register this chair as a real commons-crew run -- governance identity
@@ -471,7 +497,7 @@ async function buildBlueprintChairs(
       domain: chair.ui_domain,
       description: chair.function,
       labor_commons_refs,
-      scope: { owns, refuses: refuses.slice(0, 10), escalates_to },
+      scope: { owns, refuses, escalates_to },
       worker_agents,
       approval_required_for: approvalKeysForDomain(chair.ui_domain),
       commons_crew_run_id: registered?.runId ?? null,
@@ -524,6 +550,73 @@ async function buildAgentBlueprint(
 
   const chairs = await buildBlueprintChairs(selections, orgContext);
   return { chairs };
+}
+
+export class ChairNotFoundError extends Error {
+  constructor(uiDomain: string) {
+    super(`no chair with domain "${uiDomain}" on the current board`);
+    this.name = "ChairNotFoundError";
+  }
+}
+
+/**
+ * Rebuild one chair's specialist roster (worker-selection only) without
+ * re-running chair naming, the other five chairs' rosters, or commons-crew
+ * registration for any chair. For when one chair's worker-selection call
+ * failed live (a real, observed 429/truncation fallback) and a user wants
+ * just that seat re-decided, not the whole board re-rolled.
+ *
+ * escalates_to and commons_crew_run_id/session_id are preserved from the
+ * existing chair rather than recomputed: both depend on knowing the *other*
+ * five chairs' rosters, which a single-chair rebuild doesn't have.
+ */
+export async function regenerateChairWorkers(
+  orgId: string,
+  uiDomain: string
+): Promise<Awaited<ReturnType<typeof buildBlueprintChairs>>[number]> {
+  const blueprint = getArtifact(orgId, "agent_blueprint");
+  const chairs = (blueprint?.payload as { chairs?: Array<Record<string, unknown>> } | undefined)?.chairs ?? [];
+  const existing = chairs.find(c => c.domain === uiDomain);
+  if (!existing) throw new ChairNotFoundError(uiDomain);
+
+  const profile = getArtifact(orgId, "business_profile");
+  const p = (profile?.payload ?? {}) as Record<string, unknown>;
+  const answers: InterviewAnswers = {
+    S1: {
+      org_name: typeof p.org_name === "string" ? p.org_name : undefined,
+      description: typeof p.description === "string" ? p.description : undefined,
+      industry: typeof p.industry === "string" ? p.industry : "general",
+      size: (p.size as { headcount?: number } | undefined) ?? undefined,
+      location: (p.location as { primary?: string } | undefined) ?? undefined,
+    },
+  };
+  const industry = answers.S1?.industry ?? "general";
+  const orgSummary = buildOrgSummary(answers);
+
+  const chair: ChairContext = {
+    name: String(existing.name ?? uiDomain),
+    function: String(existing.description ?? ""),
+    ui_domain: uiDomain,
+    has_workers: true,
+  };
+
+  const { workers } = await populateChairWorkers(chair, industry, orgId, orgSummary);
+  const chair_id = String(existing.chair_id);
+  const { labor_commons_refs, owns, refuses, worker_agents } = await buildChairRefsAndWorkers(chair, chair_id, workers);
+
+  const existingScope = (existing.scope ?? {}) as { escalates_to?: string[] };
+  return {
+    chair_id,
+    name: chair.name,
+    domain: uiDomain,
+    description: chair.function,
+    labor_commons_refs,
+    scope: { owns, refuses, escalates_to: existingScope.escalates_to ?? [] },
+    worker_agents,
+    approval_required_for: (existing.approval_required_for as string[] | undefined) ?? approvalKeysForDomain(uiDomain),
+    commons_crew_run_id: (existing.commons_crew_run_id as string | null | undefined) ?? null,
+    commons_crew_session_id: (existing.commons_crew_session_id as string | null | undefined) ?? null,
+  };
 }
 
 // ── Artifact generators ───────────────────────────────────────────────────────

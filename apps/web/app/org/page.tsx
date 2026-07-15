@@ -73,6 +73,9 @@ export default function BoardRosterPage() {
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
   const [correctionMsg, setCorrectionMsg] = useState<{ text: string; url?: string } | null>(null);
 
+  const [regeneratingDomain, setRegeneratingDomain] = useState<string | null>(null);
+  const [regenerateError, setRegenerateError] = useState<{ domain: string; text: string } | null>(null);
+
   const load = useCallback(async () => {
     const [bp, g] = await Promise.all([
       apiFetch<AgentBlueprint>("/api/v1/artifacts/agent_blueprint/latest"),
@@ -118,6 +121,21 @@ export default function BoardRosterPage() {
     } else {
       setCorrectionMsg({ text: status === 422 ? "Couldn't open the correction — the field path may not exist, or labor-commons isn't configured for corrections right now." : "Something went wrong submitting the correction." });
     }
+  }
+
+  async function regenerateChair(domain: string) {
+    setRegeneratingDomain(domain);
+    setRegenerateError(null);
+    const { data, status } = await apiPost<{ version: number }>(`/api/v1/interview/chairs/${domain}/regenerate`, {});
+    setRegeneratingDomain(null);
+    if (!data) {
+      setRegenerateError({
+        domain,
+        text: status === 404 ? "No board found to regenerate against." : "Couldn't regenerate this chair's roster — try again in a moment.",
+      });
+      return;
+    }
+    load();
   }
 
   async function submitGap() {
@@ -219,9 +237,21 @@ export default function BoardRosterPage() {
 
                     {chair.worker_agents?.length > 0 && (
                       <div>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          Support staff
-                        </p>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", margin: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                            Support staff
+                          </p>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); regenerateChair(chair.domain); }}
+                            disabled={regeneratingDomain === chair.domain}
+                            style={{ fontSize: 11, fontWeight: 600, padding: "3px 8px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-secondary)", cursor: regeneratingDomain === chair.domain ? "default" : "pointer" }}
+                          >
+                            {regeneratingDomain === chair.domain ? "Regenerating…" : "Regenerate roster"}
+                          </button>
+                        </div>
+                        {regenerateError?.domain === chair.domain && (
+                          <p style={{ fontSize: 12, color: "#dc2626", margin: "0 0 8px" }}>{regenerateError.text}</p>
+                        )}
                         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                           {chair.worker_agents.map(agent => (
                             <div key={agent.agent_id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "8px 12px" }}>
