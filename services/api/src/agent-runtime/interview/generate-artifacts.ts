@@ -237,9 +237,13 @@ async function inferChairContexts(
 
   try {
     // Match specifically a JSON array of objects: [{...}] — avoids collisions with [bracket] notation in prose
+    // Live evidence (same failure class as worker-selection below): this
+    // reasoning model can spend its whole budget on internal reasoning
+    // before emitting the answer, coming back with an empty, truncated
+    // response (finish_reason=length) rather than the six-seat JSON array.
     const contexts = await completeJsonWithRetry(
       orgId, CHAIR_CONTEXT_SYSTEM, prompt,
-      { max_tokens: 1600, temperature: 0.2 },
+      { max_tokens: 3200, temperature: 0.2 },
       /\[\s*\{[\s\S]*\}\s*\]/,
       isChairContextArray
     );
@@ -326,7 +330,12 @@ async function selectRelevantWorkers(
   try {
     const parsed = await completeJsonWithRetry(
       orgId, WORKER_SELECTION_SYSTEM, prompt,
-      { max_tokens: 1200, temperature: 0.2 },
+      // Live evidence: 1200 was enough for chair-context (a much shorter
+      // prompt) but a reasoning model working through 30 real, differentiated
+      // catalog candidates routinely spent the whole budget on internal
+      // reasoning and never reached the final JSON -- every worker-selection
+      // call in a real run failed this way. 4000 gives real headroom.
+      { max_tokens: 4000, temperature: 0.2 },
       /\{[\s\S]*\}/,
       isWorkerSelectionResponse
     );

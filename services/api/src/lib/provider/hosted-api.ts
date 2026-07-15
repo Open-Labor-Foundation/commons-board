@@ -34,7 +34,12 @@ class HostedApiProvider implements InferenceProvider {
     try {
       const res = await fetch(`${base}/chat/completions`, {
         method: "POST",
-        signal: AbortSignal.timeout(120_000),
+        // Live evidence: raising max_tokens so a reasoning model has room to
+        // finish (see generate-artifacts.ts) also raises real completion
+        // time -- a worker-selection call timed out at 120s once the budget
+        // went from 1200 to 4000. 240s gives headroom without hiding a truly
+        // hung request forever.
+        signal: AbortSignal.timeout(240_000),
         headers: {
           "content-type": "application/json",
           ...(key ? { authorization: `Bearer ${key}` } : {})
@@ -55,8 +60,20 @@ class HostedApiProvider implements InferenceProvider {
       if (!res.ok) {
         return this.fail(`provider HTTP ${res.status}`);
       }
-      const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const data = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+      };
       const text = data.choices?.[0]?.message?.content ?? "";
+      const finishReason = data.choices?.[0]?.finish_reason;
+      // Reasoning models (e.g. GLM-5.2 on Featherless) can spend the entire
+      // max_tokens budget on internal reasoning before ever emitting the
+      // final answer, leaving `content` empty with finish_reason "length".
+      // That's a truncated response, not a valid empty completion -- treat
+      // it as a failure instead of returning ok:true with nothing, so
+      // callers get an actionable error instead of silently unparseable text.
+      if (text.trim() === "" && finishReason === "length") {
+        return this.fail("provider truncated the response before emitting any content (finish_reason=length) -- max_tokens too low for this model");
+      }
       return { ok: true, text, provider_id: this.provider_id, model: req.model ?? this.config.model };
     } catch (err) {
       return this.fail(err instanceof Error ? err.message : "request failed");
