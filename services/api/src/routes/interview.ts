@@ -19,8 +19,8 @@ import { Router, type Request, type Response } from "express";
 import type { ArtifactType } from "@commons-board/shared";
 import { InterviewStateMachine, applyCorrections } from "../agent-runtime/interview/state-machine.js";
 import type { InterviewSection, InterviewAnswers } from "../agent-runtime/interview/types.js";
-import { generateArtifacts } from "../agent-runtime/interview/generate-artifacts.js";
-import { writeArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
+import { generateArtifacts, regenerateChairWorkers, ChairNotFoundError } from "../agent-runtime/interview/generate-artifacts.js";
+import { writeArtifact, getArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { completeJsonWithRetry } from "../lib/model-json.js";
 import { sanitizeForLog } from "../lib/commons-crew-client.js";
@@ -751,5 +751,41 @@ interviewRouter.post("/test-board", requireRole(["admin", "operator"]), async (r
     res.status(200).json({ org_id: orgId, preset: presetName, agent_blueprint: artifacts.agent_blueprint });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "board generation failed" });
+  }
+});
+
+// ── Regenerate one chair's specialist roster ─────────────────────────────────
+// POST /api/v1/interview/chairs/:domain/regenerate
+// Re-runs worker-selection for a single existing chair (e.g. a chair that
+// fell back to lexical top-ranking after a live 429/truncation) without
+// re-rolling the other chairs or re-registering commons-crew identities.
+// Persists a new agent_blueprint version with just that chair replaced.
+interviewRouter.post("/chairs/:domain/regenerate", requireRole(["admin", "operator"]), async (req: Request, res: Response) => {
+  const orgId = req.ctx!.workspaceId;
+  const actor = req.ctx!.userId;
+  const uiDomain = req.params.domain;
+
+  const current = getArtifact(orgId, "agent_blueprint");
+  if (!current) {
+    res.status(404).json({ error: "no board exists for this workspace yet" });
+    return;
+  }
+
+  try {
+    const updatedChair = await regenerateChairWorkers(orgId, uiDomain);
+    const payload = current.payload as { chairs: Array<{ chair_id: string; domain: string }> };
+    const nextChairs = payload.chairs.map(c => (c.domain === uiDomain ? updatedChair : c));
+    const record = writeArtifact(orgId, "agent_blueprint", { ...payload, chairs: nextChairs }, actor);
+    res.status(200).json({ version: record.version, chair: updatedChair });
+  } catch (err) {
+    if (err instanceof ChairNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    if (err instanceof ArtifactValidationError) {
+      res.status(422).json({ error: "artifact validation failed", details: err.errors });
+      return;
+    }
+    res.status(500).json({ error: err instanceof Error ? err.message : "chair regeneration failed" });
   }
 });
