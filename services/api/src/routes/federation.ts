@@ -24,6 +24,7 @@ import { asyncHandler } from "../lib/async-handler.js";
 import { getArtifact } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
+import { loadSettings } from "../lib/settings-store.js";
 
 export const federationRouter = Router();
 federationRouter.use(requireContext);
@@ -250,9 +251,7 @@ federationRouter.get("/portfolio", asyncHandler(async (req: Request, res: Respon
 
   const links = readJson<FederationLink[]>(linksKey(workspaceId), []);
   const businessProfile = (await getArtifact(workspaceId, "business_profile"))?.payload ?? null;
-  const settingsKey = `settings/${workspaceId}`;
-  const settings = readJson<{ org_name?: string; governance_mode?: string }>(settingsKey, {});
-
+  const settings = await loadSettings(workspaceId);
   const activeLinks = links.filter((l) => l.status === "active");
   const totalPendingRequests = activeLinks.reduce(
     (sum, l) => sum + (l.last_snapshot?.pending_requests ?? 0),

@@ -20,13 +20,12 @@
  */
 import { randomUUID } from "node:crypto";
 import { complete, NoProviderConfiguredError } from "./model-client.js";
-import { readJson } from "./persistence.js";
+import { loadSettings } from "./settings-store.js";
 import { loadInferenceEnv } from "./env.js";
 import type {
   InferenceCallType,
   CallTypeConfig,
   InferenceQueueSettings,
-  WorkspaceSettings,
 } from "@commons-board/shared";
 
 // ---------------------------------------------------------------------------
@@ -174,21 +173,16 @@ export function getEffectiveMaxQueueDepth(): number {
 
 /**
  * Reads a workspace's InferenceQueueSettings from the persistence layer.
- * Returns null when no settings or no inference_queue block is present.
+ * Returns null when no inference_queue block is present.
  *
- * Per-call read (no TTL cache) — the settings file is small and this keeps
- * config changes effective immediately without a cache-invalidation story.
- * Mirrors the read pattern in motherboard-chat.ts / model-client.ts:
- *   readJson<WorkspaceSettings>(`settings/${workspaceId}`, null)
+ * Per-call read (no TTL cache) — this keeps config changes effective
+ * immediately without a cache-invalidation story.
  */
-function readWorkspaceQueueSettings(
+async function readWorkspaceQueueSettings(
   workspaceId: string
-): InferenceQueueSettings | null {
-  const settings = readJson<WorkspaceSettings | null>(
-    `settings/${workspaceId}`,
-    null
-  );
-  return settings?.inference_queue ?? null;
+): Promise<InferenceQueueSettings | null> {
+  const settings = await loadSettings(workspaceId);
+  return settings.inference_queue ?? null;
 }
 
 /**
@@ -196,12 +190,12 @@ function readWorkspaceQueueSettings(
  * merged with this workspace's call_type_overrides (workspace wins).
  * Returns a fresh object so callers can't mutate the shared baseline.
  */
-function resolveCallConfig(
+async function resolveCallConfig(
   callType: InferenceCallType,
   workspaceId: string
-): CallTypeConfig {
+): Promise<CallTypeConfig> {
   const base = EFFECTIVE_CALL_TYPE_CONFIG[callType];
-  const ws = readWorkspaceQueueSettings(workspaceId);
+  const ws = await readWorkspaceQueueSettings(workspaceId);
   const override = ws?.call_type_overrides?.[callType];
   if (!override) return { ...base };
   return {
@@ -215,8 +209,8 @@ function resolveCallConfig(
  * Resolves the per-workspace max queue depth: workspace setting wins over the
  * env-adjusted global default.
  */
-function resolveMaxQueueDepth(workspaceId: string): number {
-  const ws = readWorkspaceQueueSettings(workspaceId);
+async function resolveMaxQueueDepth(workspaceId: string): Promise<number> {
+  const ws = await readWorkspaceQueueSettings(workspaceId);
   return ws?.max_queue_depth ?? EFFECTIVE_MAX_QUEUE_DEPTH;
 }
 
@@ -224,8 +218,8 @@ function resolveMaxQueueDepth(workspaceId: string): number {
  * Telemetry is enabled when the workspace's inference_queue.enable_telemetry
  * is true. (No global env toggle was specified; per-workspace only.)
  */
-function telemetryEnabled(workspaceId: string): boolean {
-  return readWorkspaceQueueSettings(workspaceId)?.enable_telemetry === true;
+async function telemetryEnabled(workspaceId: string): Promise<boolean> {
+  return (await readWorkspaceQueueSettings(workspaceId))?.enable_telemetry === true;
 }
 
 /**
@@ -408,12 +402,12 @@ function withTimeoutRace<T>(promise: Promise<T>, timeoutMs: number): Promise<T> 
 async function runCall(entry: QueueEntry): Promise<void> {
   const { request, enqueuedAt, correlationId } = entry;
   // Workspace call_type_overrides merge on top of the env-adjusted baseline.
-  const config = resolveCallConfig(request.callType, request.workspaceId);
+  const config = await resolveCallConfig(request.callType, request.workspaceId);
   const startedAt = Date.now();
   const queuedForMs = startedAt - enqueuedAt;
   let lastError: unknown;
   let retries = 0;
-  const emit = telemetryEnabled(request.workspaceId);
+  const emit = await telemetryEnabled(request.workspaceId);
 
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
     try {
@@ -520,8 +514,8 @@ function releaseSlot(callType: InferenceCallType): void {
 export async function enqueueInference(
   request: InferenceCallRequest
 ): Promise<InferenceCallResult> {
-  const config = resolveCallConfig(request.callType, request.workspaceId);
-  const maxQueueDepth = resolveMaxQueueDepth(request.workspaceId);
+  const config = await resolveCallConfig(request.callType, request.workspaceId);
+  const maxQueueDepth = await resolveMaxQueueDepth(request.workspaceId);
   const correlationId = randomUUID();
   const enqueuedAt = Date.now();
 

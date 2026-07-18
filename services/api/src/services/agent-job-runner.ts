@@ -181,7 +181,7 @@ export function registerWorkspace(workspaceId: string): void {
 
 async function tick(): Promise<void> {
   for (const workspaceId of activeWorkspaces) {
-    const { maxParallel } = getProviderConcurrency(workspaceId);
+    const { maxParallel } = await getProviderConcurrency(workspaceId);
     if (running.size >= maxParallel) return;
 
     const pendingIds = getPendingJobIds(workspaceId);

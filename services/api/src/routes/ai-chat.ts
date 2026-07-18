@@ -11,11 +11,10 @@
 import { Router, type Request, type Response } from "express";
 import { requireContext } from "../lib/auth.js";
 import { completeChat, parseThinking } from "../lib/model-client.js";
-import { readJson } from "../lib/persistence.js";
 import { resolveApiKey } from "../lib/provider/index.js";
 import { getArtifact } from "../lib/artifact-store.js";
 import { listBoardChatThreads } from "../lib/board-chat-job-store.js";
-import type { WorkspaceSettings } from "@commons-board/shared";
+import { loadSettings } from "../lib/settings-store.js";
 import {
   createAiChatSession,
   getAiChatSession,
@@ -156,8 +155,8 @@ aiChatRouter.post("/stream", async (req: Request, res: Response) => {
     return;
   }
 
-  const settings = readJson<WorkspaceSettings>(`settings/${workspaceId}`, null as unknown as WorkspaceSettings);
-  const config = settings?.providers?.find((p) => p.provider_id === settings?.active_provider_id);
+  const settings = await loadSettings(workspaceId);
+  const config = settings.providers.find((p) => p.provider_id === settings.active_provider_id);
   if (!config) {
     res.status(503).json({ error: "no provider configured — add one in Settings" });
     return;

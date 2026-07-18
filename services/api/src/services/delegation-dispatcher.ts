@@ -139,7 +139,7 @@ export async function dispatchTasks(input: DispatchInput): Promise<WorkerDeliver
     }
 
     // Execute ready tasks in parallel (bounded by provider concurrency).
-    const { maxParallel } = getProviderConcurrency(workspaceId);
+    const { maxParallel } = await getProviderConcurrency(workspaceId);
     const results = await mapConcurrent(toExecute, maxParallel, (task) =>
       executeTaskInline(task, workspaceId, agentById)
     );

@@ -534,7 +534,7 @@ async function buildAgentBlueprint(
   // provider-keyed semaphore every caller shares, so bounding here is
   // correct and sufficient again rather than needing to hardcode a
   // pessimistic value.
-  const { maxParallel } = getProviderConcurrency(orgId);
+  const { maxParallel } = await getProviderConcurrency(orgId);
   const selections = await mapConcurrent(chairContexts, maxParallel, chair =>
     populateChairWorkers(chair, industry, orgId, orgSummary)
   );

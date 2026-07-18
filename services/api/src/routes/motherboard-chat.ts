@@ -15,11 +15,11 @@
  */
 import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
-import type { BoardDomain, GovernanceEvent, WorkspaceSettings } from "@commons-board/shared";
+import type { BoardDomain, GovernanceEvent } from "@commons-board/shared";
 import { requireContext } from "../lib/auth.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { getArtifact } from "../lib/artifact-store.js";
-import { readJson } from "../lib/persistence.js";
+import { loadSettings } from "../lib/settings-store.js";
 import { getSessionState, applyInterpretation, clearSessionState } from "../services/board-session-state.js";
 import { interpretChatMessage } from "../services/chat-interpreter.js";
 import { buildReasonedBoardResponse } from "../services/chair-reasoning.js";
@@ -65,11 +65,8 @@ async function executeBoardChat(
 
   const threadId = job.thread_id;
   const sessionState = getSessionState(workspaceId, threadId);
-  const workspaceSettings = readJson<WorkspaceSettings>(
-    `settings/${workspaceId}`,
-    null as unknown as WorkspaceSettings
-  );
-  const confidenceFloor = workspaceSettings?.board_settings?.confidence_floor ?? 0.45;
+  const workspaceSettings = await loadSettings(workspaceId);
+  const confidenceFloor = workspaceSettings.board_settings?.confidence_floor ?? 0.45;
 
   const { spec, routing_note, reused_context } = interpretChatMessage({
     message: body.message,
@@ -158,7 +155,7 @@ async function executeBoardChat(
   }
 
   const now = new Date().toISOString();
-  const { maxParallel } = getProviderConcurrency(workspaceId);
+  const { maxParallel } = await getProviderConcurrency(workspaceId);
 
   const chairResults = await mapConcurrent(activeChairs, maxParallel, async (chair) => {
     const domain = chair.domain as BoardDomain;

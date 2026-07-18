@@ -1,18 +1,17 @@
 import { Router, type Request } from "express";
-import type { WorkspaceSettings } from "@commons-board/shared";
 import { getInstalledAddins, readRegistry, fetchCatalog, getAddinDir, isValidAddinId } from "../lib/addin-registry.js";
 import { installPack, uninstallPack, readPackReadme, getRebuildPending, clearRebuildPending, writeRebuildSignal } from "../lib/addin-install.js";
 import { findComposeContainer, restartContainer } from "../lib/docker-client.js";
-import { readJson } from "../lib/persistence.js";
+import { loadSettings } from "../lib/settings-store.js";
 import { requireContext, requireRole } from "../lib/auth.js";
 
 function workspaceOf(req: Request): string {
   return req.ctx?.workspaceId ?? req.header("x-workspace-id") ?? "default";
 }
 
-function catalogUrl(req: Request): string | undefined {
-  const ws = readJson<WorkspaceSettings>(`settings/${workspaceOf(req)}`, null as unknown as WorkspaceSettings);
-  return ws?.addin_catalog_url || undefined;
+async function catalogUrl(req: Request): Promise<string | undefined> {
+  const ws = await loadSettings(workspaceOf(req));
+  return ws.addin_catalog_url || undefined;
 }
 
 export const addinsRouter = Router();
@@ -27,7 +26,7 @@ addinsRouter.get("/", (_req, res) => {
 addinsRouter.get("/catalog", async (req, res) => {
   try {
     const [packs, installedIds] = await Promise.all([
-      fetchCatalog(catalogUrl(req)),
+      fetchCatalog(await catalogUrl(req)),
       Promise.resolve(readRegistry()),
     ]);
     const merged = packs.map(p => ({ ...p, installed: installedIds.includes(p.id) }));
@@ -46,7 +45,7 @@ addinsRouter.post("/:id/install", requireRole(["admin", "operator"]), async (req
     return;
   }
   try {
-    const packs = await fetchCatalog(catalogUrl(req));
+    const packs = await fetchCatalog(await catalogUrl(req));
     const pack = packs.find(p => p.id === id);
     if (!pack) {
       res.status(404).json({ error: `Pack "${id}" not found in catalog` });
