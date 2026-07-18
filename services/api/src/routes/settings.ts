@@ -87,6 +87,41 @@ settingsRouter.put("/", requireRole(["admin", "operator"]), (req: Request, res: 
   const incomingProviders = body.providers ?? current.providers;
   const mergedProviders = mergeProviders(incomingProviders, current.providers);
 
+  // Validate inference_queue overrides before merging. Kept inline and loose-typed
+  // (unknown -> Record<string, unknown>) because req.body is an untrusted cast; the
+  // runtime checks are what actually guard shape here. Mirrors the 400-return style
+  // of the active_provider_id check below.
+  if (body.inference_queue !== undefined) {
+    const iq: unknown = body.inference_queue;
+    if (typeof iq !== "object" || iq === null || Array.isArray(iq)) {
+      res.status(400).json({ error: "inference_queue must be an object" });
+      return;
+    }
+    const iqObj = iq as Record<string, unknown>;
+    if (iqObj.call_type_overrides !== undefined) {
+      if (
+        typeof iqObj.call_type_overrides !== "object" ||
+        iqObj.call_type_overrides === null ||
+        Array.isArray(iqObj.call_type_overrides)
+      ) {
+        res.status(400).json({ error: "inference_queue.call_type_overrides must be an object" });
+        return;
+      }
+    }
+    if (iqObj.max_queue_depth !== undefined) {
+      if (!Number.isInteger(iqObj.max_queue_depth) || (iqObj.max_queue_depth as number) <= 0) {
+        res.status(400).json({ error: "inference_queue.max_queue_depth must be a positive integer" });
+        return;
+      }
+    }
+    if (iqObj.enable_telemetry !== undefined) {
+      if (typeof iqObj.enable_telemetry !== "boolean") {
+        res.status(400).json({ error: "inference_queue.enable_telemetry must be a boolean" });
+        return;
+      }
+    }
+  }
+
   const merged: WorkspaceSettings = {
     ...current,
     org_name: body.org_name ?? current.org_name,
@@ -97,6 +132,7 @@ settingsRouter.put("/", requireRole(["admin", "operator"]), (req: Request, res: 
     feature_toggles: body.feature_toggles ?? current.feature_toggles,
     board_settings: body.board_settings ?? current.board_settings,
     addin_catalog_url: body.addin_catalog_url !== undefined ? (body.addin_catalog_url || undefined) : current.addin_catalog_url,
+    inference_queue: body.inference_queue ?? current.inference_queue,
     workspace_id: current.workspace_id
   };
 

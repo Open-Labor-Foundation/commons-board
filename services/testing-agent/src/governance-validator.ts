@@ -1,6 +1,8 @@
 import request from "supertest";
-import app from "../../api/src/index.js";
+import { createApp } from "../../api/src/index.js";
 import type { ValidationCheck } from "./types.js";
+
+const app = createApp();
 
 type Role = "admin" | "operator" | "viewer";
 

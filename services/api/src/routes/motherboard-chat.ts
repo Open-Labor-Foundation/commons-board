@@ -25,6 +25,9 @@ import { interpretChatMessage } from "../services/chat-interpreter.js";
 import { buildReasonedBoardResponse } from "../services/chair-reasoning.js";
 import { synthesizeBoardResponse } from "../services/board-synthesizer.js";
 import { runReasoningLoop } from "../services/reasoning-loop.js";
+import { extractDelegatableTasks } from "../services/task-extractor.js";
+import { dispatchTasks } from "../services/delegation-dispatcher.js";
+import type { DelegationWorkerAgent, DeliverableSummary, WorkerDeliverable } from "../services/delegation-types.js";
 import { getProviderConcurrency, mapConcurrent } from "../lib/model-client.js";
 import {
   createBoardChatJob,
@@ -90,6 +93,12 @@ async function executeBoardChat(
     domain: string;
     model?: string;
     labor_commons_refs?: Array<{ specialist_slug: string; role: string }>;
+    worker_agents?: Array<{
+      agent_id: string;
+      name: string;
+      labor_commons_ref: string | null;
+      task_scope: string[];
+    }>;
   };
   const allChairs = Array.isArray((blueprint as Record<string, unknown>).chairs)
     ? (blueprint.chairs as BlueprintChair[])
@@ -243,17 +252,77 @@ async function executeBoardChat(
     }
   });
 
+  // ── Delegation: extract tasks from chair responses and dispatch to workers ──
+  // Non-blocking: any failure logs a warning and continues with prose-only synthesis.
+  let deliverables: WorkerDeliverable[] = [];
+  try {
+    // Collect all worker agents from the active chairs' blueprints.
+    const allWorkerAgents: DelegationWorkerAgent[] = activeChairs.flatMap((chair) =>
+      (chair.worker_agents ?? []).map((wa) => ({
+        agent_id: wa.agent_id,
+        name: wa.name,
+        domain: chair.domain,
+        labor_commons_ref: wa.labor_commons_ref,
+        task_scope: wa.task_scope,
+        model: chair.model,
+      }))
+    );
+
+    if (allWorkerAgents.length > 0) {
+      const chairResponses = chairResults.map((r) => ({
+        chair_id: r.chair.id,
+        chair_name: r.chair.name,
+        domain: r.chair.domain,
+        response_text: r.summary_markdown,
+      }));
+
+      const tasks = await extractDelegatableTasks({
+        workspaceId,
+        chairResponses,
+        workerAgents: allWorkerAgents,
+        requestContext: body.message,
+        domain: targetDomain,
+        model: synthesisModel,
+      });
+
+      if (tasks.length > 0) {
+        console.log(`[CB] Delegation: extracted ${tasks.length} tasks, dispatching to workers`);
+        deliverables = await dispatchTasks({
+          workspaceId,
+          tasks,
+          workerAgents: allWorkerAgents,
+        });
+        const completed = deliverables.filter((d) => d.status === "completed").length;
+        const failed = deliverables.filter((d) => d.status === "failed").length;
+        const skipped = deliverables.filter((d) => d.status === "skipped").length;
+        console.log(
+          `[CB] Delegation complete: ${completed} completed, ${failed} failed, ${skipped} skipped`
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[CB] Delegation failed, continuing with prose-only synthesis: ${err instanceof Error ? err.message : err}`
+    );
+  }
+
   let response: {
     headline: string;
     summary_markdown: string;
     recommended_workflows: string[];
+    deliverables: DeliverableSummary[];
   };
 
   if (sessionMode === "chair" && chairResults.length === 1) {
+    const deliverableSummaries = deliverables.map(toDeliverableSummary);
+    const deliverableSection = formatDeliverableSection(deliverables);
     response = {
       headline: chairResults[0].headline,
-      summary_markdown: chairResults[0].summary_markdown,
+      summary_markdown: deliverables.length > 0
+        ? `${chairResults[0].summary_markdown}\n\n${deliverableSection}`
+        : chairResults[0].summary_markdown,
       recommended_workflows: [],
+      deliverables: deliverableSummaries,
     };
   } else {
     const synthesis = await synthesizeBoardResponse({
@@ -263,6 +332,7 @@ async function executeBoardChat(
       chairResults,
       sessionMode,
       model: synthesisModel,
+      deliverables,
     });
 
     if (!synthesis.ok) {
@@ -300,6 +370,7 @@ async function executeBoardChat(
       headline: response.headline,
       summary_markdown: response.summary_markdown,
       recommended_workflows: response.recommended_workflows,
+      deliverables: response.deliverables,
       meta: {
         routing: { spec, routing_note, reused_context },
         deliberation: chairResults.map((r) => ({
@@ -316,6 +387,37 @@ async function executeBoardChat(
     },
     completed_at: new Date().toISOString(),
   });
+}
+
+/** Convert a WorkerDeliverable to a compact DeliverableSummary for the job result. */
+function toDeliverableSummary(d: WorkerDeliverable): DeliverableSummary {
+  return {
+    task_id: d.task_id,
+    worker_name: d.worker_name,
+    output_type: d.output_type,
+    status: d.status,
+    excerpt: d.status === "completed"
+      ? d.output.slice(0, 500)
+      : d.error ?? d.status,
+    full_output_available: d.status === "completed" && d.output.length > 0,
+  };
+}
+
+/** Format worker deliverables as a markdown section for the chair-mode response. */
+function formatDeliverableSection(deliverables: WorkerDeliverable[]): string {
+  if (deliverables.length === 0) return "";
+  const lines: string[] = ["---", "## Worker Deliverables", ""];
+  for (const d of deliverables) {
+    const statusLabel = d.status === "completed" ? "✅" : d.status === "failed" ? "❌" : "⏭️";
+    lines.push(`### ${statusLabel} ${d.worker_name} — ${d.output_type}`);
+    if (d.status === "completed") {
+      lines.push("", d.output.slice(0, 4000));
+    } else {
+      lines.push("", `_${d.status}${d.error ? `: ${d.error}` : ""}_`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
 }
 
 /** POST /api/v1/board/chat — enqueue and return immediately */

@@ -148,17 +148,11 @@ async function executeJob(job: AgentJob): Promise<void> {
     } catch (err) {
       if (err instanceof NoProviderConfiguredError) {
         // Template output — provider not configured, produce a structured stub
-        output = [
-          `## ${agentName} — Task Response`,
-          "",
-          `**Task:** ${job.task.description}`,
-          "",
-          "**Status:** No inference provider configured. Configure one in Settings to enable AI task execution.",
-          "",
-          "**What would be produced:** This agent would apply its specialist expertise to complete the task and return actionable output.",
-          "",
-          `_Specialist: ${laborCommonsRef ?? "unassigned"}_`,
-        ].join("\n");
+        output =
+          `${agentName} couldn't run this task because no inference provider is configured — ` +
+          `configure one in Settings to enable AI task execution. ` +
+          `When configured, this agent would apply its specialist expertise to complete "${job.task.description}" and return actionable output. ` +
+          `_Specialist: ${laborCommonsRef ?? "unassigned"}_`;
       } else {
         throw err;
       }

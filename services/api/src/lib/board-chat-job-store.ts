@@ -19,6 +19,8 @@ export type BoardChatResult = {
   headline: string;
   summary_markdown: string;
   recommended_workflows: string[];
+  /** Worker deliverables produced by delegation (empty if no tasks were delegated). */
+  deliverables: import("../services/delegation-types.js").DeliverableSummary[];
   meta: Record<string, unknown>;
 };
 
