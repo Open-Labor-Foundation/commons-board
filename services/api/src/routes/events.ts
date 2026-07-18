@@ -10,14 +10,15 @@
 import { Router, type Request, type Response } from "express";
 import { requireContext } from "../lib/auth.js";
 import { getLog } from "../lib/decision-log.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const eventsRouter = Router();
 eventsRouter.use(requireContext);
 
 /** GET /api/v1/events */
-eventsRouter.get("/", (req: Request, res: Response) => {
+eventsRouter.get("/", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
-  const log = getLog(workspaceId);
+  const log = await getLog(workspaceId);
   const eventType = req.query.event_type as string | undefined;
   const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 50)));
   const offset = Math.max(0, Number(req.query.offset ?? 0));
@@ -64,4 +65,4 @@ eventsRouter.get("/", (req: Request, res: Response) => {
     offset,
     limit
   });
-});
+}));

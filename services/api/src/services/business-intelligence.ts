@@ -59,7 +59,7 @@ function trendFromValue(value: number): "up" | "flat" | "down" {
   return "down";
 }
 
-function workspaceSignals(workspaceId: string): Record<string, number> {
+async function workspaceSignals(workspaceId: string): Promise<Record<string, number>> {
   const approvals = readJson<Array<{ status: string }>>(
     `approval-records/${workspaceId}`,
     []
@@ -72,7 +72,7 @@ function workspaceSignals(workspaceId: string): Record<string, number> {
     `execution-runs/${workspaceId}`,
     []
   );
-  const decisionLog = getLog(workspaceId);
+  const decisionLog = await getLog(workspaceId);
 
   const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
   const openRequests = requests.filter((r) => !["completed", "rejected"].includes(r.status)).length;
@@ -129,8 +129,8 @@ function buildInsight(
   return { summary, recommendations, confidence };
 }
 
-export function evaluateCapability(workspaceId: string, capability: CapabilitySpec): CapabilityEvaluation {
-  const signals = workspaceSignals(workspaceId);
+export async function evaluateCapability(workspaceId: string, capability: CapabilitySpec): Promise<CapabilityEvaluation> {
+  const signals = await workspaceSignals(workspaceId);
   const value = deriveValue(workspaceId, capability, signals);
   const trend = trendFromValue(value);
   const { summary, recommendations, confidence } = buildInsight(capability.name, capability.domain, value, trend, signals);
@@ -150,15 +150,16 @@ export function evaluateCapability(workspaceId: string, capability: CapabilitySp
   };
 }
 
-export function evaluateCapabilities(workspaceId: string): CapabilityEvaluation[] {
-  return capabilityCatalog.map((c) => evaluateCapability(workspaceId, c));
+export async function evaluateCapabilities(workspaceId: string): Promise<CapabilityEvaluation[]> {
+  const results = await Promise.all(capabilityCatalog.map((c) => evaluateCapability(workspaceId, c)));
+  return results;
 }
 
-export function evaluateDashboard(workspaceId: string, dashboard: DashboardSpec): DashboardEvaluation {
-  const capabilities = dashboard.capabilityIds
+export async function evaluateDashboard(workspaceId: string, dashboard: DashboardSpec): Promise<DashboardEvaluation> {
+  const capabilities = await Promise.all(dashboard.capabilityIds
     .map((id) => capabilityCatalog.find((c) => c.id === id))
     .filter((c): c is CapabilitySpec => Boolean(c))
-    .map((c) => evaluateCapability(workspaceId, c));
+    .map((c) => evaluateCapability(workspaceId, c)));
 
   const score = Number((capabilities.reduce((sum, c) => sum + c.value, 0) / Math.max(1, capabilities.length)).toFixed(1));
   const trend = trendFromValue(score);
@@ -180,13 +181,13 @@ export function evaluateDashboard(workspaceId: string, dashboard: DashboardSpec)
   };
 }
 
-export function evaluateDashboardByKey(workspaceId: string, key: string): DashboardEvaluation | null {
+export async function evaluateDashboardByKey(workspaceId: string, key: string): Promise<DashboardEvaluation | null> {
   const dashboard = getDashboardByKey(key);
   if (!dashboard) return null;
   return evaluateDashboard(workspaceId, dashboard);
 }
 
-export function evaluateCapabilityByKey(workspaceId: string, key: string): CapabilityEvaluation | null {
+export async function evaluateCapabilityByKey(workspaceId: string, key: string): Promise<CapabilityEvaluation | null> {
   const capability = getCapabilityByKey(key);
   if (!capability) return null;
   return evaluateCapability(workspaceId, capability);

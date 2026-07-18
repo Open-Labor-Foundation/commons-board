@@ -23,6 +23,7 @@ import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { loopBottlenecks } from "../lib/operational-loop.js";
 import { getLog } from "../lib/decision-log.js";
 import { getArtifact } from "../lib/artifact-store.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const observabilityRouter = Router();
 observabilityRouter.use(requireContext);
@@ -54,13 +55,13 @@ observabilityRouter.get("/bottlenecks", (req: Request, res: Response) => {
 });
 
 /** GET /api/v1/obs/error-counts */
-observabilityRouter.get("/error-counts", (req: Request, res: Response) => {
+observabilityRouter.get("/error-counts", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
   const execRuns = readJson<Array<{ status: string }>>(
     `execution-runs/${workspaceId}`,
     []
   );
-  const decisionLog = getLog(workspaceId);
+  const decisionLog = await getLog(workspaceId);
   const approvals = readJson<Array<{ status: string }>>(`approval-records/${workspaceId}`, []);
   const failedRuns = execRuns.filter((r) => r.status === "failed").length;
   const rejectedApprovals = approvals.filter((a) => a.status === "rejected").length;
@@ -70,7 +71,7 @@ observabilityRouter.get("/error-counts", (req: Request, res: Response) => {
     decision_log_entries: decisionLog.length,
     governance_error_rate: Number((failedRuns / Math.max(1, execRuns.length)).toFixed(3))
   });
-});
+}));
 
 /** GET /api/v1/obs/connector-health — stub until Phase 15 connectors */
 observabilityRouter.get("/connector-health", (_req: Request, res: Response) => {
@@ -336,9 +337,9 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
 // ---------------------------------------------------------------------------
 
 /** GET /api/v1/obs/intent-health */
-observabilityRouter.get("/intent-health", (req: Request, res: Response) => {
+observabilityRouter.get("/intent-health", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
-  const log = getLog(workspaceId);
+  const log = await getLog(workspaceId);
   const routed = log.filter((e) => e.event.event_type === "board_chat_completed").length;
 
   res.status(200).json({
@@ -347,7 +348,7 @@ observabilityRouter.get("/intent-health", (req: Request, res: Response) => {
     total_routed: routed,
     computed_at: new Date().toISOString()
   });
-});
+}));
 
 /** GET /api/v1/obs/model-router-health */
 observabilityRouter.get("/model-router-health", (_req: Request, res: Response) => {
