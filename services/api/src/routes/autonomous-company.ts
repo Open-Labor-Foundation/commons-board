@@ -42,6 +42,7 @@ import type { ApprovalRecord, BoardDomain, BoardRequestRecord, GovernanceEvent }
 import { requireContext, requireRole } from "../lib/auth.js";
 import { getArtifact } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { buildRdExperimentPacket, type RdExperimentPacket } from "../services/rd-orchestrator.js";
 import { computeLevel4Dashboard } from "./level4.js";
@@ -595,7 +596,7 @@ autonomousCompanyRouter.get("/experiments", (req: Request, res: Response) => {
 });
 
 /** POST /api/v1/autonomous/experiments/:id/review */
-autonomousCompanyRouter.post("/experiments/:id/review", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+autonomousCompanyRouter.post("/experiments/:id/review", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const experiment = listExperiments(workspaceId).find((e) => e.id === req.params.id);
   if (!experiment) {
@@ -618,7 +619,7 @@ autonomousCompanyRouter.post("/experiments/:id/review", requireRole(["admin", "o
   if (packet.governance_handoff_required) {
     // Find matching chair in agent_blueprint
     type AgentBlueprintPayload = { chairs?: Array<{ chair_id: string; domain: string }> };
-    const blueprintPayload = getArtifact(workspaceId, "agent_blueprint")?.payload as AgentBlueprintPayload | undefined;
+    const blueprintPayload = (await getArtifact(workspaceId, "agent_blueprint"))?.payload as AgentBlueprintPayload | undefined;
     const chairs = blueprintPayload?.chairs ?? [];
     const matchingChair = chairs.find((c) => c.domain === packet.recommended_owner_domain);
 
@@ -636,7 +637,7 @@ autonomousCompanyRouter.post("/experiments/:id/review", requireRole(["admin", "o
         riskLevel: packet.stage === "rejected" ? "high" : "medium"
       });
 
-      appendEvent({
+      await appendEvent({
         event_id: randomUUID(),
         org_id: workspaceId,
         event_type: "board_request_submitted",
@@ -653,7 +654,7 @@ autonomousCompanyRouter.post("/experiments/:id/review", requireRole(["admin", "o
   }
 
   res.status(200).json({ experiment, packet, handoff_request_id: handoffRequestId });
-});
+}));
 
 /** POST /api/v1/autonomous/experiments/:id/deploy */
 autonomousCompanyRouter.post("/experiments/:id/deploy", requireRole(["admin", "operator"]), (req: Request, res: Response) => {

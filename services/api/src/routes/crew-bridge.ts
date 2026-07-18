@@ -35,6 +35,7 @@ import { getArtifact } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { dispatchWebhookEvent } from "../lib/webhook-delivery.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const crewBridgeRouter = Router();
 crewBridgeRouter.use(requireContext);
@@ -139,7 +140,7 @@ function requireCrewAuth(req: Request, res: Response, next: NextFunction): void 
 // ---------------------------------------------------------------------------
 
 /** POST /api/v1/crew-bridge/connect */
-crewBridgeRouter.post("/connect", requireRole(["admin"]), (req: Request, res: Response) => {
+crewBridgeRouter.post("/connect", requireRole(["admin"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const body = req.body as {
     crew_instance_id?: string;
@@ -164,7 +165,7 @@ crewBridgeRouter.post("/connect", requireRole(["admin"]), (req: Request, res: Re
   };
   writeJsonAtomic(connectionKey(workspaceId), connection);
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: workspaceId,
     event_type: "federation_linked",
@@ -186,10 +187,10 @@ crewBridgeRouter.post("/connect", requireRole(["admin"]), (req: Request, res: Re
     crew_instance_name: connection.crewInstanceName,
     connected_at: connection.connectedAt
   });
-});
+}));
 
 /** DELETE /api/v1/crew-bridge/connect */
-crewBridgeRouter.delete("/connect", requireRole(["admin"]), (req: Request, res: Response) => {
+crewBridgeRouter.delete("/connect", requireRole(["admin"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const existing = readJson<CrewConnection | null>(connectionKey(workspaceId), null);
   if (!existing) {
@@ -198,7 +199,7 @@ crewBridgeRouter.delete("/connect", requireRole(["admin"]), (req: Request, res: 
   }
   writeJsonAtomic(connectionKey(workspaceId), null);
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: workspaceId,
     event_type: "board_request_updated",
@@ -210,7 +211,7 @@ crewBridgeRouter.delete("/connect", requireRole(["admin"]), (req: Request, res: 
   } satisfies GovernanceEvent);
 
   res.status(200).json({ disconnected: true, crew_instance_id: existing.crewInstanceId });
-});
+}));
 
 /** GET /api/v1/crew-bridge/status */
 crewBridgeRouter.get("/status", (req: Request, res: Response) => {
@@ -237,13 +238,13 @@ crewBridgeRouter.get("/status", (req: Request, res: Response) => {
  *  Accessible to both board users (via requireContext) and crew (via requireCrewAuth).
  *  Crew calls this with their own bearer token; board admins call it normally.
  */
-crewBridgeRouter.get("/board-summary", requireCrewAuth, (req: Request, res: Response) => {
+crewBridgeRouter.get("/board-summary", requireCrewAuth, asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
 
-  const businessProfile = getArtifact(workspaceId, "business_profile")?.payload ?? null;
-  const objectiveConfig = getArtifact(workspaceId, "objective_config")?.payload ?? null;
-  const agentBlueprint = getArtifact(workspaceId, "agent_blueprint")?.payload ?? null;
-  const autonomyPolicy = getArtifact(workspaceId, "autonomy_policy")?.payload ?? null;
+  const businessProfile = (await getArtifact(workspaceId, "business_profile"))?.payload ?? null;
+  const objectiveConfig = (await getArtifact(workspaceId, "objective_config"))?.payload ?? null;
+  const agentBlueprint = (await getArtifact(workspaceId, "agent_blueprint"))?.payload ?? null;
+  const autonomyPolicy = (await getArtifact(workspaceId, "autonomy_policy"))?.payload ?? null;
 
   type BoardRequest = { status: string };
   const boardRequests = readJson<BoardRequest[]>(`board-requests/${workspaceId}`, []);
@@ -269,7 +270,7 @@ crewBridgeRouter.get("/board-summary", requireCrewAuth, (req: Request, res: Resp
     pending_level4_actions: pendingActions,
     as_of: new Date().toISOString()
   });
-});
+}));
 
 /** GET /api/v1/crew-bridge/events */
 crewBridgeRouter.get("/events", requireCrewAuth, (req: Request, res: Response) => {

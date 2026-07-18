@@ -46,8 +46,8 @@ type BlueprintChair = {
   model?: string;
 };
 
-function getChairsFromBlueprint(workspaceId: string): BlueprintChair[] {
-  const record = getArtifact(workspaceId, "agent_blueprint");
+async function getChairsFromBlueprint(workspaceId: string): Promise<BlueprintChair[]> {
+  const record = await getArtifact(workspaceId, "agent_blueprint");
   if (!record) return [];
   const bp = record.payload as Record<string, unknown>;
   return Array.isArray(bp.chairs) ? (bp.chairs as BlueprintChair[]) : [];
@@ -111,7 +111,7 @@ export async function buildWorkerSystemPrompt(
 }
 
 async function executeJob(job: AgentJob): Promise<void> {
-  const chairs = getChairsFromBlueprint(job.workspace_id);
+  const chairs = await getChairsFromBlueprint(job.workspace_id);
   const match = findAgent(chairs, job.agent_id);
 
   updateJob(job.workspace_id, job.job_id, {

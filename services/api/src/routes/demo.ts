@@ -27,9 +27,9 @@ demoRouter.post("/try", async (req: Request, res: Response) => {
   const now = new Date().toISOString();
 
   // Seed business_profile if absent
-  if (!getArtifact(workspaceId, "business_profile")) {
+  if (!(await getArtifact(workspaceId, "business_profile"))) {
     try {
-      writeArtifact(workspaceId, "business_profile", {
+      await writeArtifact(workspaceId, "business_profile", {
         org_id: workspaceId,
         org_name: "Demo Organization",
         governance_mode: "business",
@@ -47,9 +47,9 @@ demoRouter.post("/try", async (req: Request, res: Response) => {
   }
 
   // Seed objective_config if absent
-  if (!getArtifact(workspaceId, "objective_config")) {
+  if (!(await getArtifact(workspaceId, "objective_config"))) {
     try {
-      writeArtifact(workspaceId, "objective_config", {
+      await writeArtifact(workspaceId, "objective_config", {
         org_id: workspaceId,
         primary_objectives: [
           {
@@ -71,9 +71,9 @@ demoRouter.post("/try", async (req: Request, res: Response) => {
   }
 
   // Seed autonomy_policy if absent
-  if (!getArtifact(workspaceId, "autonomy_policy")) {
+  if (!(await getArtifact(workspaceId, "autonomy_policy"))) {
     try {
-      writeArtifact(workspaceId, "autonomy_policy", {
+      await writeArtifact(workspaceId, "autonomy_policy", {
         org_id: workspaceId,
         autonomy_mode: "advisor",
         execution_mode: "sim",
@@ -96,9 +96,9 @@ demoRouter.post("/try", async (req: Request, res: Response) => {
   }
 
   // Seed cadence_protocol if absent
-  if (!getArtifact(workspaceId, "cadence_protocol")) {
+  if (!(await getArtifact(workspaceId, "cadence_protocol"))) {
     try {
-      writeArtifact(workspaceId, "cadence_protocol", {
+      await writeArtifact(workspaceId, "cadence_protocol", {
         org_id: workspaceId,
         daily: { enabled: true, run_at: "08:30", timezone: "America/Chicago", delivery: ["crew-bridge"], output: "pulse" },
         weekly: { enabled: true, run_at: "09:00", timezone: "America/Chicago", delivery: ["crew-bridge"], run_on: "monday", output: "brief", chairs_included: [] },
@@ -109,9 +109,9 @@ demoRouter.post("/try", async (req: Request, res: Response) => {
   }
 
   // Seed agent_blueprint if absent
-  if (!getArtifact(workspaceId, "agent_blueprint")) {
+  if (!(await getArtifact(workspaceId, "agent_blueprint"))) {
     try {
-      writeArtifact(workspaceId, "agent_blueprint", {
+      await writeArtifact(workspaceId, "agent_blueprint", {
         org_id: workspaceId,
         chairs: [
           {
@@ -151,11 +151,11 @@ demoRouter.post("/try", async (req: Request, res: Response) => {
   }
 
   // Run execution with normalized artifacts
-  const bp = getArtifact(workspaceId, "business_profile");
-  const oc = getArtifact(workspaceId, "objective_config");
-  const ap = getArtifact(workspaceId, "autonomy_policy");
-  const cp = getArtifact(workspaceId, "cadence_protocol");
-  const ab = getArtifact(workspaceId, "agent_blueprint");
+  const bp = await getArtifact(workspaceId, "business_profile");
+  const oc = await getArtifact(workspaceId, "objective_config");
+  const ap = await getArtifact(workspaceId, "autonomy_policy");
+  const cp = await getArtifact(workspaceId, "cadence_protocol");
+  const ab = await getArtifact(workspaceId, "agent_blueprint");
 
   if (!bp || !oc || !ap || !cp || !ab) {
     res.status(422).json({ error: "failed to seed required artifacts" });
@@ -200,7 +200,7 @@ demoRouter.post("/try", async (req: Request, res: Response) => {
   const existing = readJson<typeof brief[]>(`briefs/${workspaceId}`, []);
   writeJsonAtomic(`briefs/${workspaceId}`, [...existing, brief].slice(-10));
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: workspaceId,
     event_type: "action_executed",

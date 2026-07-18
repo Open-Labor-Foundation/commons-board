@@ -36,7 +36,7 @@ function saveSyncState(orgId: string, state: Record<string, string>): void {
 }
 
 export async function runCatalogSync(orgId: string): Promise<SyncNotification[]> {
-  const blueprintRecord: ArtifactRecord | null = getArtifact(orgId, "agent_blueprint");
+  const blueprintRecord: ArtifactRecord | null = await getArtifact(orgId, "agent_blueprint");
   if (!blueprintRecord) return [];
 
   const blueprint = blueprintRecord.payload as Record<string, unknown>;

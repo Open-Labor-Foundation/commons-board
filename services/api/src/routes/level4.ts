@@ -39,6 +39,7 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import type { ArtifactType, GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { writeArtifact, getArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
@@ -663,7 +664,7 @@ function actionAdapter(actionType: string): "email" | "publish" | "deploy" | nul
 // ---------------------------------------------------------------------------
 
 /** POST /api/v1/level4/launch-from-prompt */
-level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const { prompt, constraints } = req.body as { prompt?: string; constraints?: Record<string, unknown> };
 
@@ -683,7 +684,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
     }));
 
   try {
-    const ventureProfileRecord = writeArtifact(
+    const ventureProfileRecord = await writeArtifact(
       workspaceId,
       "venture_profile" as ArtifactType,
       {
@@ -696,7 +697,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
       userId
     );
 
-    const launchPlanRecord = writeArtifact(
+    const launchPlanRecord = await writeArtifact(
       workspaceId,
       "launch_plan" as ArtifactType,
       {
@@ -712,7 +713,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
       userId
     );
 
-    const toolingPlanRecord = writeArtifact(
+    const toolingPlanRecord = await writeArtifact(
       workspaceId,
       "tooling_plan" as ArtifactType,
       {
@@ -729,7 +730,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
       userId
     );
 
-    const financialPolicyRecord = writeArtifact(
+    const financialPolicyRecord = await writeArtifact(
       workspaceId,
       "financial_policy" as ArtifactType,
       {
@@ -751,10 +752,10 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
     );
 
     // Agent blueprint only if none exists — interview flow owns it when present
-    const existingBlueprint = getArtifact(workspaceId, "agent_blueprint");
+    const existingBlueprint = await getArtifact(workspaceId, "agent_blueprint");
     let blueprintRecord: { artifact_id: string; type: string; version: number } | null = null;
     if (!existingBlueprint) {
-      blueprintRecord = writeArtifact(
+      blueprintRecord = await writeArtifact(
         workspaceId,
         "agent_blueprint",
         {
@@ -862,7 +863,8 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
     ];
 
     const now = new Date().toISOString();
-    const actions = actionDefs.map((def) => {
+    const actions: Level4Action[] = [];
+    for (const def of actionDefs) {
       const action = createLevel4Action({
         workspaceId,
         type: def.type,
@@ -882,7 +884,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
         category: action.type
       });
 
-      appendEvent({
+      await appendEvent({
         event_id: randomUUID(),
         org_id: workspaceId,
         event_type: "action_proposed",
@@ -899,8 +901,8 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
         at: now
       } satisfies GovernanceEvent);
 
-      return action;
-    });
+      actions.push(action);
+    }
 
     res.status(201).json({
       artifacts: {
@@ -921,7 +923,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
     const detail = error instanceof Error ? error.message : "unknown error";
     res.status(500).json({ error: "launch-from-prompt failed", detail });
   }
-});
+}));
 
 /** GET /api/v1/level4/actions */
 level4Router.get("/actions", (req: Request, res: Response) => {

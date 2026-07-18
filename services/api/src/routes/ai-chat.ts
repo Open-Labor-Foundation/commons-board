@@ -43,12 +43,12 @@ const KNOWN_ENDPOINTS: Record<string, string> = {
  * org profile, board configuration, recent board threads, and recent AI chat sessions.
  * This replaces generic "I don't know your context" answers with platform-aware responses.
  */
-function buildContextualSystem(workspaceId: string): string {
+async function buildContextualSystem(workspaceId: string): Promise<string> {
   const today = new Date().toISOString().split("T")[0];
   const lines: string[] = [];
 
   // ── Identity ───────────────────────────────────────────────────────────────
-  const profileRecord = getArtifact(workspaceId, "business_profile");
+  const profileRecord = await getArtifact(workspaceId, "business_profile");
   const profile = profileRecord?.payload as Record<string, unknown> | null ?? null;
 
   const orgName = profile
@@ -89,7 +89,7 @@ function buildContextualSystem(workspaceId: string): string {
   }
 
   // ── Board configuration ────────────────────────────────────────────────────
-  const blueprintRecord = getArtifact(workspaceId, "agent_blueprint");
+  const blueprintRecord = await getArtifact(workspaceId, "agent_blueprint");
   const blueprint = blueprintRecord?.payload as { chairs?: Array<{ name: string; domain: string; description?: string }> } | null ?? null;
   const chairs = blueprint?.chairs ?? [];
   if (chairs.length > 0) {
@@ -171,7 +171,7 @@ aiChatRouter.post("/stream", async (req: Request, res: Response) => {
   if (!session) session = createAiChatSession(workspaceId, body.message, config.model);
 
   const history = session.messages.map((m) => ({ role: m.role, content: m.content }));
-  const system = body.system ?? buildContextualSystem(workspaceId);
+  const system = body.system ?? await buildContextualSystem(workspaceId);
 
   const base = (config.endpoint ?? KNOWN_ENDPOINTS[config.provider_id] ?? "").replace(/\/$/, "");
   const key = resolveApiKey(config);
@@ -269,7 +269,7 @@ aiChatRouter.post("/", async (req: Request, res: Response) => {
   const history = session.messages.map((m) => ({ role: m.role, content: m.content }));
 
   try {
-    const { answer, thinking, model } = await completeChat(workspaceId, buildContextualSystem(workspaceId), history, body.message);
+    const { answer, thinking, model } = await completeChat(workspaceId, await buildContextualSystem(workspaceId), history, body.message);
     const now = new Date().toISOString();
     appendAiChatMessages(workspaceId, session.session_id, [
       { role: "user", content: body.message, created_at: now },

@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import type { GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { getArtifact } from "../lib/artifact-store.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { createJob, getJob, listJobs, registerWorkspace, buildWorkerSystemPrompt } from "../services/agent-job-runner.js";
@@ -98,8 +99,8 @@ function loadApprovals(workspaceId: string): ApprovalRecord[] {
 // Blueprint helper
 // ---------------------------------------------------------------------------
 
-function loadChairs(workspaceId: string): Chair[] {
-  const bp = getArtifact(workspaceId, "agent_blueprint");
+async function loadChairs(workspaceId: string): Promise<Chair[]> {
+  const bp = await getArtifact(workspaceId, "agent_blueprint");
   if (!bp) return [];
   const payload = bp.payload as { chairs?: Chair[] };
   return payload?.chairs ?? [];
@@ -144,9 +145,9 @@ function workerStatus(
 // GET /api/v1/workers
 // ---------------------------------------------------------------------------
 
-workersRouter.get("/", (req: Request, res: Response) => {
+workersRouter.get("/", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
-  const chairs = loadChairs(workspaceId);
+  const chairs = await loadChairs(workspaceId);
   if (chairs.length === 0) {
     res.status(200).json({ workers: [], chairs: [] });
     return;
@@ -180,16 +181,16 @@ workersRouter.get("/", (req: Request, res: Response) => {
   }
 
   res.status(200).json({ workers, total: workers.length });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // GET /api/v1/workers/:agentId
 // ---------------------------------------------------------------------------
 
-workersRouter.get("/:agentId", (req: Request, res: Response) => {
+workersRouter.get("/:agentId", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
   const { agentId } = req.params;
-  const chairs = loadChairs(workspaceId);
+  const chairs = await loadChairs(workspaceId);
   const found = findWorker(chairs, agentId);
 
   if (!found) {
@@ -227,7 +228,7 @@ workersRouter.get("/:agentId", (req: Request, res: Response) => {
     activity: [...workerActions].reverse().slice(0, 20),
     pending_chair_approvals: domainApprovals,
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/v1/workers/:agentId/task — enqueue an async job to a worker
@@ -236,10 +237,10 @@ workersRouter.get("/:agentId", (req: Request, res: Response) => {
 workersRouter.post(
   "/:agentId/task",
   requireRole(["admin", "operator"]),
-  (req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const { workspaceId, userId } = req.ctx!;
     const { agentId } = req.params;
-    const chairs = loadChairs(workspaceId);
+    const chairs = await loadChairs(workspaceId);
     const found = findWorker(chairs, agentId);
 
     if (!found) {
@@ -288,7 +289,7 @@ workersRouter.post(
     all.push(action);
     saveWorkerActions(workspaceId, all);
 
-    appendEvent({
+    await appendEvent({
       event_id: randomUUID(),
       org_id: workspaceId,
       event_type: "action_proposed",
@@ -314,7 +315,7 @@ workersRouter.post(
       status: "pending",
       created_at: job.created_at,
     });
-  }
+  })
 );
 
 // ---------------------------------------------------------------------------
@@ -324,7 +325,7 @@ workersRouter.post(
 workersRouter.post("/:agentId/chat", async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
   const { agentId } = req.params;
-  const chairs = loadChairs(workspaceId);
+  const chairs = await loadChairs(workspaceId);
   const found = findWorker(chairs, agentId);
 
   if (!found) {
@@ -381,17 +382,17 @@ workersRouter.get("/jobs/:jobId", (req: Request, res: Response) => {
 // GET /api/v1/workers/:agentId/jobs — list jobs for a specific worker
 // ---------------------------------------------------------------------------
 
-workersRouter.get("/:agentId/jobs", (req: Request, res: Response) => {
+workersRouter.get("/:agentId/jobs", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
   const { agentId } = req.params;
-  const chairs = loadChairs(workspaceId);
+  const chairs = await loadChairs(workspaceId);
   if (!findWorker(chairs, agentId)) {
     res.status(404).json({ error: "worker not found" });
     return;
   }
   const jobs = listJobs(workspaceId, agentId);
   res.status(200).json({ agent_id: agentId, jobs, total: jobs.length });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // PATCH /api/v1/workers/:agentId/task/:taskId — update task status
@@ -400,7 +401,7 @@ workersRouter.get("/:agentId/jobs", (req: Request, res: Response) => {
 workersRouter.patch(
   "/:agentId/task/:taskId",
   requireRole(["admin", "operator"]),
-  (req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const { workspaceId, userId } = req.ctx!;
     const { agentId, taskId } = req.params;
     const body = req.body as { status?: WorkerAction["status"]; result?: string };
@@ -423,7 +424,7 @@ workersRouter.patch(
     all[idx] = updated;
     saveWorkerActions(workspaceId, all);
 
-    appendEvent({
+    await appendEvent({
       event_id: randomUUID(),
       org_id: workspaceId,
       event_type: "action_executed",
@@ -435,7 +436,7 @@ workersRouter.patch(
     } satisfies GovernanceEvent);
 
     res.status(200).json(updated);
-  }
+  })
 );
 
 // ---------------------------------------------------------------------------
@@ -444,7 +445,7 @@ workersRouter.patch(
 
 workersRouter.post("/by-chair/:chairId/chat", async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
-  const chairs = loadChairs(workspaceId);
+  const chairs = await loadChairs(workspaceId);
   const chair = chairs.find((c) => c.chair_id === req.params.chairId);
 
   if (!chair) {
@@ -491,10 +492,10 @@ workersRouter.post("/by-chair/:chairId/chat", async (req: Request, res: Response
 // GET /api/v1/workers/by-chair/:chairId — workers for a specific chair
 // ---------------------------------------------------------------------------
 
-workersRouter.get("/by-chair/:chairId", (req: Request, res: Response) => {
+workersRouter.get("/by-chair/:chairId", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
   const { chairId } = req.params;
-  const chairs = loadChairs(workspaceId);
+  const chairs = await loadChairs(workspaceId);
   const chair = chairs.find((c) => c.chair_id === chairId);
 
   if (!chair) {
@@ -537,4 +538,4 @@ workersRouter.get("/by-chair/:chairId", (req: Request, res: Response) => {
     total_workers: workers.length,
     active_count: workers.filter((w) => w.status === "active").length,
   });
-});
+}));

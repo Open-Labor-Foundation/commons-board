@@ -574,12 +574,12 @@ export async function regenerateChairWorkers(
   orgId: string,
   uiDomain: string
 ): Promise<Awaited<ReturnType<typeof buildBlueprintChairs>>[number]> {
-  const blueprint = getArtifact(orgId, "agent_blueprint");
+  const blueprint = await getArtifact(orgId, "agent_blueprint");
   const chairs = (blueprint?.payload as { chairs?: Array<Record<string, unknown>> } | undefined)?.chairs ?? [];
   const existing = chairs.find(c => c.domain === uiDomain);
   if (!existing) throw new ChairNotFoundError(uiDomain);
 
-  const profile = getArtifact(orgId, "business_profile");
+  const profile = await getArtifact(orgId, "business_profile");
   const p = (profile?.payload ?? {}) as Record<string, unknown>;
   const answers: InterviewAnswers = {
     S1: {

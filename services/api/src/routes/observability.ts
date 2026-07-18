@@ -257,7 +257,7 @@ observabilityRouter.get("/metrics", (req: Request, res: Response) => {
 type ComplianceCheck = { name: string; pass: boolean; detail: string };
 
 /** GET /api/v1/obs/compliance-posture */
-observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => {
+observabilityRouter.get("/compliance-posture", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
 
   const REQUIRED_ARTIFACT_TYPES = [
@@ -271,9 +271,10 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
   const checks: ComplianceCheck[] = [];
 
   // 1. Has all 5 required artifacts
-  const missingArtifacts = REQUIRED_ARTIFACT_TYPES.filter(
-    (t) => getArtifact(workspaceId, t) === null
+  const artifactChecks = await Promise.all(
+    REQUIRED_ARTIFACT_TYPES.map(async (t) => ({ t, exists: (await getArtifact(workspaceId, t)) !== null }))
   );
+  const missingArtifacts = artifactChecks.filter((r) => !r.exists).map((r) => r.t);
   checks.push({
     name: "required_artifacts",
     pass: missingArtifacts.length === 0,
@@ -283,7 +284,7 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
   });
 
   // 2. SIM mode enabled (autonomy_policy.execution_mode === "sim" OR sim-mode file)
-  const policyRecord = getArtifact(workspaceId, "autonomy_policy");
+  const policyRecord = await getArtifact(workspaceId, "autonomy_policy");
   const policy = policyRecord?.payload as Record<string, unknown> | null ?? null;
   const simModeFile = readJson<{ mode?: string }>(`sim-mode/${workspaceId}`, {});
   const simEnabled =
@@ -297,7 +298,7 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
   });
 
   // 3. Has chairs in agent_blueprint
-  const blueprintRecord = getArtifact(workspaceId, "agent_blueprint");
+  const blueprintRecord = await getArtifact(workspaceId, "agent_blueprint");
   const blueprint = blueprintRecord?.payload as { chairs?: unknown[] } | null ?? null;
   const hasChairs = Array.isArray(blueprint?.chairs) && blueprint.chairs.length > 0;
   checks.push({
@@ -330,7 +331,7 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
     checks,
     evaluated_at: new Date().toISOString()
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Intent / model / reasoning health

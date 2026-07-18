@@ -11,6 +11,7 @@
 import { Router, type Request, type Response } from "express";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { getArtifact } from "../lib/artifact-store.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import {
   openVote,
   listVotes,
@@ -24,13 +25,13 @@ import {
 export const votesRouter = Router();
 votesRouter.use(requireContext);
 
-function collectiveConfig(orgId: string): Record<string, unknown> | null {
-  const r = getArtifact(orgId, "collective_config");
+async function collectiveConfig(orgId: string): Promise<Record<string, unknown> | null> {
+  const r = await getArtifact(orgId, "collective_config");
   return r ? (r.payload as Record<string, unknown>) : null;
 }
 
 /** POST /api/v1/votes */
-votesRouter.post("/", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+votesRouter.post("/", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const body = req.body as {
@@ -47,7 +48,7 @@ votesRouter.post("/", requireRole(["admin", "operator"]), (req: Request, res: Re
     return;
   }
 
-  const cc = collectiveConfig(orgId);
+  const cc = await collectiveConfig(orgId);
   const voting = cc?.voting as Record<string, unknown> | undefined;
 
   const vote = openVote({
@@ -62,7 +63,7 @@ votesRouter.post("/", requireRole(["admin", "operator"]), (req: Request, res: Re
   });
 
   res.status(201).json(vote);
-});
+}));
 
 /** GET /api/v1/votes */
 votesRouter.get("/", (req: Request, res: Response) => {
@@ -82,7 +83,7 @@ votesRouter.get("/:id", (req: Request, res: Response) => {
 });
 
 /** POST /api/v1/votes/:id/cast */
-votesRouter.post("/:id/cast", requireRole(["admin", "operator", "member"]), (req: Request, res: Response) => {
+votesRouter.post("/:id/cast", requireRole(["admin", "operator", "member"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const body = req.body as { choice?: string; member_id?: string };
@@ -92,7 +93,7 @@ votesRouter.post("/:id/cast", requireRole(["admin", "operator", "member"]), (req
     return;
   }
 
-  const cc = collectiveConfig(orgId);
+  const cc = await collectiveConfig(orgId);
   const activeMemberCount = ((cc?.membership as Record<string, number>)?.active_member_count) ?? 1;
 
   try {
@@ -114,14 +115,14 @@ votesRouter.post("/:id/cast", requireRole(["admin", "operator", "member"]), (req
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : "ballot error" });
   }
-});
+}));
 
 /** POST /api/v1/votes/:id/resolve */
-votesRouter.post("/:id/resolve", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+votesRouter.post("/:id/resolve", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
 
-  const cc = collectiveConfig(orgId);
+  const cc = await collectiveConfig(orgId);
   const activeMemberCount = ((cc?.membership as Record<string, number>)?.active_member_count) ?? 1;
 
   try {
@@ -130,4 +131,4 @@ votesRouter.post("/:id/resolve", requireRole(["admin", "operator"]), (req: Reque
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : "resolve error" });
   }
-});
+}));

@@ -19,6 +19,7 @@ import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { classifyAction } from "../lib/verification-policy.js";
 import { getArtifact } from "../lib/artifact-store.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const approvalsRouter = Router();
 approvalsRouter.use(requireContext);
@@ -33,7 +34,7 @@ function saveApprovals(orgId: string, records: ApprovalRecord[]): void {
 }
 
 /** POST /api/v1/approvals */
-approvalsRouter.post("/", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+approvalsRouter.post("/", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const body = req.body as {
@@ -52,7 +53,7 @@ approvalsRouter.post("/", requireRole(["admin", "operator"]), (req: Request, res
   }
 
   // Read autonomy_policy to resolve risk threshold
-  const policyRecord = getArtifact(orgId, "autonomy_policy");
+  const policyRecord = await getArtifact(orgId, "autonomy_policy");
   const policy = policyRecord?.payload as Record<string, unknown> | undefined;
   const riskThreshold = (policy?.risk_escalation_threshold as number) ?? 50;
   const blastThreshold = (policy?.blast_radius_escalation_threshold as "low" | "medium" | "high") ?? "high";
@@ -92,7 +93,7 @@ approvalsRouter.post("/", requireRole(["admin", "operator"]), (req: Request, res
     resolved_at: null
   };
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: orgId,
     event_type: "action_proposed",
@@ -107,7 +108,7 @@ approvalsRouter.post("/", requireRole(["admin", "operator"]), (req: Request, res
   all.push(record);
   saveApprovals(orgId, all);
   res.status(201).json(record);
-});
+}));
 
 /** GET /api/v1/approvals */
 approvalsRouter.get("/", (req: Request, res: Response) => {
@@ -127,7 +128,7 @@ approvalsRouter.get("/:id", (req: Request, res: Response) => {
 });
 
 /** POST /api/v1/approvals/:id/approve */
-approvalsRouter.post("/:id/approve", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+approvalsRouter.post("/:id/approve", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const { note } = req.body as { note?: string };
@@ -153,7 +154,7 @@ approvalsRouter.post("/:id/approve", requireRole(["admin", "operator"]), (req: R
   all[idx] = record;
   saveApprovals(orgId, all);
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: orgId,
     event_type: "approval_recorded",
@@ -165,10 +166,10 @@ approvalsRouter.post("/:id/approve", requireRole(["admin", "operator"]), (req: R
   });
 
   res.status(200).json(record);
-});
+}));
 
 /** POST /api/v1/approvals/:id/reject */
-approvalsRouter.post("/:id/reject", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+approvalsRouter.post("/:id/reject", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const { note } = req.body as { note?: string };
@@ -186,7 +187,7 @@ approvalsRouter.post("/:id/reject", requireRole(["admin", "operator"]), (req: Re
   all[idx] = record;
   saveApprovals(orgId, all);
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: orgId,
     event_type: "approval_recorded",
@@ -198,4 +199,4 @@ approvalsRouter.post("/:id/reject", requireRole(["admin", "operator"]), (req: Re
   });
 
   res.status(200).json(record);
-});
+}));

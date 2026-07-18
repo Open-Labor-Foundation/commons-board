@@ -15,6 +15,7 @@ import { Router, type Request, type Response } from "express";
 import type { ArtifactType, GovernanceEvent } from "@commons-board/shared";
 import { getArtifact, writeArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
 import { requireContext, requireRole } from "../lib/auth.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { resolveAllChairs, applyResolutionsToBlueprint, type BlueprintResolution } from "../services/specialist-resolver.js";
@@ -30,8 +31,8 @@ orgRouter.use(requireContext);
 orgRouter.post("/resolve-specialists", requireRole(["admin", "operator"]), async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
 
-  const blueprintRecord = getArtifact(orgId, "agent_blueprint");
-  const profileRecord = getArtifact(orgId, "business_profile");
+  const blueprintRecord = await getArtifact(orgId, "agent_blueprint");
+  const profileRecord = await getArtifact(orgId, "business_profile");
 
   if (!blueprintRecord) {
     res.status(422).json({ error: "agent_blueprint artifact is required before resolving specialists" });
@@ -71,7 +72,7 @@ orgRouter.post("/confirm-specialists", requireRole(["admin", "operator"]), async
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
 
-  const blueprintRecord = getArtifact(orgId, "agent_blueprint");
+  const blueprintRecord = await getArtifact(orgId, "agent_blueprint");
   if (!blueprintRecord) {
     res.status(422).json({ error: "agent_blueprint artifact not found" });
     return;
@@ -89,7 +90,7 @@ orgRouter.post("/confirm-specialists", requireRole(["admin", "operator"]), async
   );
 
   try {
-    const record = writeArtifact(orgId, "agent_blueprint" as ArtifactType, updated, actor);
+    const record = await writeArtifact(orgId, "agent_blueprint" as ArtifactType, updated, actor);
     writeJsonAtomic(`specialist-matches/${orgId}`, []);
     res.status(200).json({ artifact_id: record.artifact_id, version: record.version });
   } catch (err) {
@@ -102,12 +103,12 @@ orgRouter.post("/confirm-specialists", requireRole(["admin", "operator"]), async
 });
 
 /** PUT /api/v1/org/chairs/:chair_id/specialists */
-orgRouter.put("/chairs/:chair_id/specialists", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+orgRouter.put("/chairs/:chair_id/specialists", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const { chair_id } = req.params;
 
-  const blueprintRecord = getArtifact(orgId, "agent_blueprint");
+  const blueprintRecord = await getArtifact(orgId, "agent_blueprint");
   if (!blueprintRecord) {
     res.status(404).json({ error: "agent_blueprint not found" });
     return;
@@ -131,7 +132,7 @@ orgRouter.put("/chairs/:chair_id/specialists", requireRole(["admin", "operator"]
   const updated = { ...blueprint, chairs };
 
   try {
-    const record = writeArtifact(orgId, "agent_blueprint" as ArtifactType, updated, actor);
+    const record = await writeArtifact(orgId, "agent_blueprint" as ArtifactType, updated, actor);
     res.status(200).json({ artifact_id: record.artifact_id, version: record.version, chair_id });
   } catch (err) {
     if (err instanceof ArtifactValidationError) {
@@ -140,7 +141,7 @@ orgRouter.put("/chairs/:chair_id/specialists", requireRole(["admin", "operator"]
     }
     throw err;
   }
-});
+}));
 
 // ── gap domain detection + chair templates ────────────────────────────────────
 
@@ -285,7 +286,7 @@ orgRouter.post("/gaps", requireRole(["admin", "operator"]), async (req: Request,
   let alreadyCovered = false;
 
   if (domain) {
-    const blueprintRecord = getArtifact(workspaceId, "agent_blueprint");
+    const blueprintRecord = await getArtifact(workspaceId, "agent_blueprint");
     if (blueprintRecord) {
       const bp = blueprintRecord.payload as { org_id: string; chairs?: Array<{ domain: string; name: string }>; schema_version: string };
       const chairs = bp.chairs ?? [];
@@ -297,10 +298,10 @@ orgRouter.post("/gaps", requireRole(["admin", "operator"]), async (req: Request,
         const newChair = buildAgentChair(domain, description, gapId);
         const updated = { ...bp, chairs: [...chairs, newChair] };
         try {
-          writeArtifact(workspaceId, "agent_blueprint" as ArtifactType, updated, userId);
+          await writeArtifact(workspaceId, "agent_blueprint" as ArtifactType, updated, userId);
           chairAdded = newChair;
           updateGap(workspaceId, gapId, { resolved_at: nowIso });
-          appendEvent({
+          await appendEvent({
             event_id: randomUUID(),
             org_id: workspaceId,
             event_type: "artifact_written",
@@ -626,8 +627,8 @@ function obReconcileRequiredChairs(
   return { blueprint: { ...blueprint, chairs }, added, reactivated };
 }
 
-function obBuildDefaultOrgBlueprint(wsId: string, userId: string): OrgBlueprint {
-  const abRecord = getArtifact(wsId, "agent_blueprint");
+async function obBuildDefaultOrgBlueprint(wsId: string, userId: string): Promise<OrgBlueprint> {
+  const abRecord = await getArtifact(wsId, "agent_blueprint");
   const storedChairs = (abRecord?.payload as { chairs?: Array<Record<string, unknown>> } | undefined)?.chairs ?? [];
 
   const chairs: OrgChair[] = [];
@@ -722,7 +723,7 @@ function obDelegationAutoApproveEnabled(blueprint: OrgBlueprint): boolean {
 // ── routes ────────────────────────────────────────────────────────────────────
 
 /** POST /api/v1/org/bootstrap */
-orgRouter.post("/bootstrap", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+orgRouter.post("/bootstrap", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const existing = obLatestOrgBlueprint(workspaceId);
   const requiredDomains: string[] = Array.isArray(req.body?.required_domains) ? req.body.required_domains : OB_REQUIRED_DOMAINS;
@@ -732,7 +733,7 @@ orgRouter.post("/bootstrap", requireRole(["admin", "operator"]), (req: Request, 
   let reactivated: string[] = [];
 
   if (!existing) {
-    const base = obBuildDefaultOrgBlueprint(workspaceId, userId);
+    const base = await obBuildDefaultOrgBlueprint(workspaceId, userId);
     const reconciled = obReconcileRequiredChairs(base, requiredDomains);
     blueprint = obWithMetadata(reconciled.blueprint, userId, "bootstrap");
     added = reconciled.added;
@@ -747,7 +748,7 @@ orgRouter.post("/bootstrap", requireRole(["admin", "operator"]), (req: Request, 
   obPersistOrgBlueprint(workspaceId, blueprint);
   if (!obLatestDelegations(workspaceId)) obPersistDelegations(workspaceId, obDefaultDelegations());
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: workspaceId,
     event_type: "org_activated",
@@ -759,7 +760,7 @@ orgRouter.post("/bootstrap", requireRole(["admin", "operator"]), (req: Request, 
   } satisfies GovernanceEvent);
 
   res.status(existing ? 200 : 201).json({ blueprint, added, reactivated });
-});
+}));
 
 /** GET /api/v1/org/blueprint/latest */
 orgRouter.get("/blueprint/latest", (req: Request, res: Response) => {

@@ -17,6 +17,7 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import type { BoardDomain, BoardRequestRecord, BoardRoadmapRecord, CommonsCrewDispatchState, GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { routeBoardRequest, buildRoadmapPhases, buildRoadmapSummary, isValidStatusTransition } from "../lib/board-orchestration.js";
 import { getArtifact } from "../lib/artifact-store.js";
@@ -46,7 +47,7 @@ type ProposeOnlyDispatchState = Extract<CommonsCrewDispatchState, { status: "una
 
 async function attemptProposeDispatch(orgId: string, request: BoardRequestRecord): Promise<ProposeOnlyDispatchState> {
   const now = new Date().toISOString();
-  const blueprintRecord = getArtifact(orgId, "agent_blueprint");
+  const blueprintRecord = await getArtifact(orgId, "agent_blueprint");
   const blueprintChairs = (blueprintRecord?.payload as { chairs?: Array<{ chair_id: string; commons_crew_run_id?: string | null }> } | undefined)?.chairs ?? [];
   const chair = blueprintChairs.find((c) => c.chair_id === request.target_chair_id);
 
@@ -63,7 +64,7 @@ async function attemptProposeDispatch(orgId: string, request: BoardRequestRecord
 }
 
 /** POST /api/v1/board/requests */
-motherboardRouter.post("/requests", requireRole(["admin", "operator", "member"]), (req: Request, res: Response) => {
+motherboardRouter.post("/requests", requireRole(["admin", "operator", "member"]), asyncHandler(async (req: Request, res: Response) => {
   const ctx = req.ctx!;
   const body = req.body as Partial<BoardRequestRecord> & { routing?: "explicit" | "auto" };
 
@@ -72,7 +73,7 @@ motherboardRouter.post("/requests", requireRole(["admin", "operator", "member"])
     return;
   }
 
-  const blueprintRecord = getArtifact(ctx.workspaceId, "agent_blueprint");
+  const blueprintRecord = await getArtifact(ctx.workspaceId, "agent_blueprint");
   const blueprint = blueprintRecord ? (blueprintRecord.payload as Record<string, unknown>) : { chairs: [] };
 
   const autoRoute = !body.target_chair_id && !body.target_domain;
@@ -123,7 +124,7 @@ motherboardRouter.post("/requests", requireRole(["admin", "operator", "member"])
   const existing = readJson<BoardRequestRecord[]>(requestsKey(ctx.workspaceId), []);
   writeJsonAtomic(requestsKey(ctx.workspaceId), [...existing, record]);
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: ctx.workspaceId,
     event_type: "board_request_submitted",
@@ -135,7 +136,7 @@ motherboardRouter.post("/requests", requireRole(["admin", "operator", "member"])
   } satisfies GovernanceEvent);
 
   res.status(201).json({ request: record });
-});
+}));
 
 /** GET /api/v1/board/requests */
 motherboardRouter.get("/requests", (req: Request, res: Response) => {
@@ -216,7 +217,7 @@ motherboardRouter.patch("/requests/:id", requireRole(["admin", "operator"]), asy
   writeJsonAtomic(requestsKey(ctx.workspaceId), all);
 
   if (enteringApproved && updated.commons_crew_dispatch?.status === "awaiting_decision") {
-    appendEvent({
+    await appendEvent({
       event_id: randomUUID(),
       org_id: ctx.workspaceId,
       event_type: "board_request_commons_crew_dispatch_proposed",
@@ -235,7 +236,7 @@ motherboardRouter.patch("/requests/:id", requireRole(["admin", "operator"]), asy
   }
 
   const now2 = new Date().toISOString();
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: ctx.workspaceId,
     event_type: body.status && body.status !== existing.status ? "board_request_status_changed" : "board_request_updated",
@@ -250,7 +251,7 @@ motherboardRouter.patch("/requests/:id", requireRole(["admin", "operator"]), asy
 });
 
 /** POST /api/v1/board/requests/:id/roadmap */
-motherboardRouter.post("/requests/:id/roadmap", requireRole(["admin", "operator", "member"]), (req: Request, res: Response) => {
+motherboardRouter.post("/requests/:id/roadmap", requireRole(["admin", "operator", "member"]), asyncHandler(async (req: Request, res: Response) => {
   const ctx = req.ctx!;
   const all = readJson<BoardRequestRecord[]>(requestsKey(ctx.workspaceId), []);
   const boardRequest = all.find((r) => r.id === req.params.id);
@@ -290,7 +291,7 @@ motherboardRouter.post("/requests/:id/roadmap", requireRole(["admin", "operator"
     writeJsonAtomic(requestsKey(ctx.workspaceId), all);
   }
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: ctx.workspaceId,
     event_type: "board_roadmap_created",
@@ -302,7 +303,7 @@ motherboardRouter.post("/requests/:id/roadmap", requireRole(["admin", "operator"
   } satisfies GovernanceEvent);
 
   res.status(201).json({ roadmap });
-});
+}));
 
 /** GET /api/v1/board/requests/:id/roadmap */
 motherboardRouter.get("/requests/:id/roadmap", (req: Request, res: Response) => {
@@ -350,7 +351,7 @@ motherboardRouter.post("/requests/:id/dispatch-to-commons-crew", requireRole(["a
     return;
   }
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: ctx.workspaceId,
     event_type: "board_request_commons_crew_dispatch_proposed",
@@ -417,7 +418,7 @@ motherboardRouter.post("/requests/:id/dispatch-to-commons-crew/decision", requir
   all[idx] = { ...request, commons_crew_dispatch: updatedDispatch, updated_at: now };
   writeJsonAtomic(requestsKey(ctx.workspaceId), all);
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: ctx.workspaceId,
     event_type: "board_request_commons_crew_dispatch_decided",

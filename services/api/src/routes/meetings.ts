@@ -20,6 +20,7 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import type { BoardDomain, GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { getArtifact } from "../lib/artifact-store.js";
@@ -110,12 +111,12 @@ type ChairEntry = {
   labor_commons_refs?: Array<{ specialist_slug: string; role: string }>;
 };
 
-function resolveChair(
+async function resolveChair(
   workspaceId: string,
   targetChairId?: string,
   targetDomain?: BoardDomain
-): { chair: ChairEntry | null; laborCommonsSlug: string | undefined } {
-  const blueprintRecord = getArtifact(workspaceId, "agent_blueprint");
+): Promise<{ chair: ChairEntry | null; laborCommonsSlug: string | undefined }> {
+  const blueprintRecord = await getArtifact(workspaceId, "agent_blueprint");
   const blueprint = blueprintRecord
     ? (blueprintRecord.payload as Record<string, unknown>)
     : { chairs: [] };
@@ -165,7 +166,7 @@ async function buildAIResponse(
   const targetChairId = spec.target_chair_id ?? undefined;
   const targetDomain: BoardDomain = spec.target_chair_domain ?? "ops";
 
-  const { chair, laborCommonsSlug } = resolveChair(workspaceId, targetChairId, targetDomain);
+  const { chair, laborCommonsSlug } = await resolveChair(workspaceId, targetChairId, targetDomain);
 
   const now = new Date().toISOString();
 
@@ -244,7 +245,7 @@ meetingsRouter.use(requireContext);
 meetingsRouter.post(
   "/sessions",
   requireRole(["admin", "operator"]),
-  (req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const ctx = req.ctx!;
     const body = req.body as { executive_agent?: string; project_id?: string };
 
@@ -266,7 +267,7 @@ meetingsRouter.post(
     sessions.push(session);
     writeJsonAtomic(execSessionsKey(ctx.workspaceId), sessions);
 
-    appendEvent({
+    await appendEvent({
       event_id: randomUUID(),
       org_id: ctx.workspaceId,
       event_type: "exec_session_created",
@@ -279,7 +280,7 @@ meetingsRouter.post(
 
     res.status(201).json({ session });
   }
-);
+));
 
 /** GET /api/v1/meetings/sessions/:id — get session + messages */
 meetingsRouter.get("/sessions/:id", (req: Request, res: Response) => {
@@ -434,7 +435,7 @@ meetingsRouter.post(
 meetingsRouter.post(
   "/",
   requireRole(["admin", "operator"]),
-  (req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const ctx = req.ctx!;
     const body = req.body as {
       title?: string;
@@ -469,7 +470,7 @@ meetingsRouter.post(
     meetings.push(meeting);
     writeJsonAtomic(meetingsKey(ctx.workspaceId), meetings);
 
-    appendEvent({
+    await appendEvent({
       event_id: randomUUID(),
       org_id: ctx.workspaceId,
       event_type: "meeting_created",
@@ -486,7 +487,7 @@ meetingsRouter.post(
 
     res.status(201).json({ meeting });
   }
-);
+));
 
 /** GET /api/v1/meetings — list meetings for workspace */
 meetingsRouter.get("/", (req: Request, res: Response) => {
@@ -630,7 +631,7 @@ meetingsRouter.post(
     messages.push(agentMessage);
     writeJsonAtomic(meetingMessagesKey(ctx.workspaceId, id), messages);
 
-    appendEvent({
+    await appendEvent({
       event_id: randomUUID(),
       org_id: ctx.workspaceId,
       event_type: "meeting_respond_completed",
@@ -659,7 +660,7 @@ meetingsRouter.post(
 meetingsRouter.post(
   "/:id/close",
   requireRole(["admin", "operator"]),
-  (req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const ctx = req.ctx!;
     const { id } = req.params;
 
@@ -705,7 +706,7 @@ meetingsRouter.post(
     meetings[meetingIndex] = updated;
     writeJsonAtomic(meetingsKey(ctx.workspaceId), meetings);
 
-    appendEvent({
+    await appendEvent({
       event_id: randomUUID(),
       org_id: ctx.workspaceId,
       event_type: "meeting_closed",
@@ -722,4 +723,4 @@ meetingsRouter.post(
 
     res.status(200).json({ meeting: updated });
   }
-);
+));

@@ -17,6 +17,7 @@ import { Router, type Request, type Response } from "express";
 import type { ArtifactType } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { getArtifact, writeArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import {
   proposeAmendment,
   getAmendment,
@@ -30,7 +31,7 @@ export const amendmentsRouter = Router();
 amendmentsRouter.use(requireContext);
 
 /** POST /api/v1/amendments */
-amendmentsRouter.post("/", requireRole(["admin", "operator", "member"]), (req: Request, res: Response) => {
+amendmentsRouter.post("/", requireRole(["admin", "operator", "member"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const body = req.body as {
@@ -44,7 +45,7 @@ amendmentsRouter.post("/", requireRole(["admin", "operator", "member"]), (req: R
     return;
   }
 
-  const cc = getArtifact(orgId, "collective_config")?.payload as Record<string, unknown> | undefined;
+  const cc = (await getArtifact(orgId, "collective_config"))?.payload as Record<string, unknown> | undefined;
   const amendProtocol = cc?.amendment_protocol as Record<string, unknown> | undefined;
   const noticePeriodHours = body.notice_period_hours ?? (amendProtocol?.notice_period_hours as number ?? 24);
 
@@ -57,7 +58,7 @@ amendmentsRouter.post("/", requireRole(["admin", "operator", "member"]), (req: R
   });
 
   res.status(201).json(amendment);
-});
+}));
 
 /** GET /api/v1/amendments */
 amendmentsRouter.get("/", (req: Request, res: Response) => {
@@ -81,7 +82,7 @@ amendmentsRouter.get("/:id", (req: Request, res: Response) => {
 });
 
 /** POST /api/v1/amendments/:id/advance */
-amendmentsRouter.post("/:id/advance", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+amendmentsRouter.post("/:id/advance", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const body = req.body as {
@@ -91,7 +92,7 @@ amendmentsRouter.post("/:id/advance", requireRole(["admin", "operator"]), (req: 
     quorum_threshold?: number;
   };
 
-  const cc = getArtifact(orgId, "collective_config")?.payload as Record<string, unknown> | undefined;
+  const cc = (await getArtifact(orgId, "collective_config"))?.payload as Record<string, unknown> | undefined;
   const voting = cc?.voting as Record<string, unknown> | undefined;
   const membership = cc?.membership as Record<string, number> | undefined;
   const amendProtocol = cc?.amendment_protocol as Record<string, unknown> | undefined;
@@ -110,10 +111,10 @@ amendmentsRouter.post("/:id/advance", requireRole(["admin", "operator"]), (req: 
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : "advance failed" });
   }
-});
+}));
 
 /** POST /api/v1/amendments/:id/apply */
-amendmentsRouter.post("/:id/apply", requireRole(["admin", "operator"]), async (req: Request, res: Response) => {
+amendmentsRouter.post("/:id/apply", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
 
@@ -126,7 +127,7 @@ amendmentsRouter.post("/:id/apply", requireRole(["admin", "operator"]), async (r
 
     // Write the proposed payload as the new artifact version
     try {
-      const record = writeArtifact(orgId, amendment.artifact_type as ArtifactType, amendment.proposed_payload, actor);
+      const record = await writeArtifact(orgId, amendment.artifact_type as ArtifactType, amendment.proposed_payload, actor);
       res.status(200).json({ amendment, artifact_updated: true, artifact_id: record.artifact_id, version: record.version });
     } catch (err) {
       if (err instanceof ArtifactValidationError) {
@@ -138,4 +139,4 @@ amendmentsRouter.post("/:id/apply", requireRole(["admin", "operator"]), async (r
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : "apply failed" });
   }
-});
+}));

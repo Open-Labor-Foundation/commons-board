@@ -27,6 +27,7 @@ import { buildLoopCheckpoints } from "../lib/operational-loop.js";
 import { classifyAction } from "../lib/verification-policy.js";
 import type { ArtifactsForExecution, GovernedAction } from "../agent-runtime/execution/types.js";
 import { normalizeAutonomyPolicy, normalizeAgentBlueprint, normalizeObjectiveConfig } from "../lib/artifact-normalize.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const executionRouter = Router();
 executionRouter.use(requireContext);
@@ -62,12 +63,12 @@ function isSimMode(workspaceId: string): boolean {
   return simRecord.mode === "sim";
 }
 
-function loadArtifacts(workspaceId: string): { artifacts: ArtifactsForExecution | null; missing: string[] } {
-  const businessProfile = getArtifact(workspaceId, "business_profile");
-  const objectiveConfig = getArtifact(workspaceId, "objective_config");
-  const autonomyPolicy = getArtifact(workspaceId, "autonomy_policy");
-  const cadenceProtocol = getArtifact(workspaceId, "cadence_protocol");
-  const agentBlueprint = getArtifact(workspaceId, "agent_blueprint");
+async function loadArtifacts(workspaceId: string): Promise<{ artifacts: ArtifactsForExecution | null; missing: string[] }> {
+  const businessProfile = await getArtifact(workspaceId, "business_profile");
+  const objectiveConfig = await getArtifact(workspaceId, "objective_config");
+  const autonomyPolicy = await getArtifact(workspaceId, "autonomy_policy");
+  const cadenceProtocol = await getArtifact(workspaceId, "cadence_protocol");
+  const agentBlueprint = await getArtifact(workspaceId, "agent_blueprint");
 
   const missing: string[] = [];
   if (!businessProfile) missing.push("business_profile");
@@ -78,7 +79,7 @@ function loadArtifacts(workspaceId: string): { artifacts: ArtifactsForExecution 
 
   if (missing.length > 0) return { artifacts: null, missing };
 
-  const financialPolicy = getArtifact(workspaceId, "financial_policy" as ArtifactType);
+  const financialPolicy = await getArtifact(workspaceId, "financial_policy" as ArtifactType);
 
   const ap = autonomyPolicy!.payload as Record<string, unknown>;
   const ab = agentBlueprint!.payload as Record<string, unknown>;
@@ -115,7 +116,7 @@ executionRouter.post("/run", requireRole(["admin", "operator"]), async (req: Req
   }
 
   const sim = isSimMode(ctx.workspaceId);
-  const { artifacts, missing } = loadArtifacts(ctx.workspaceId);
+  const { artifacts, missing } = await loadArtifacts(ctx.workspaceId);
 
   if (!artifacts) {
     res.status(400).json({ error: "missing required artifacts; complete interview before execution", missing });
@@ -156,7 +157,7 @@ executionRouter.post("/run", requireRole(["admin", "operator"]), async (req: Req
       "business"
     );
 
-    appendEvent({
+    await appendEvent({
       event_id: randomUUID(),
       org_id: ctx.workspaceId,
       event_type: action.governor_decision === "blocked" ? "action_proposed" : "action_executed",
@@ -240,7 +241,7 @@ executionRouter.get("/runs/:run_id", (req: Request, res: Response) => {
 });
 
 /** POST /api/v1/execution/child-runtimes */
-executionRouter.post("/child-runtimes", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+executionRouter.post("/child-runtimes", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const ctx = req.ctx!;
   const body = req.body as { child_id: string; child_workspace_id: string; name: string; api_base_url?: string };
   if (!body.child_id || !body.child_workspace_id || !body.name) {
@@ -253,7 +254,7 @@ executionRouter.post("/child-runtimes", requireRole(["admin", "operator"]), (req
   const updated = [...existing.filter((c) => c.child_id !== body.child_id), { ...body, registered_at: now }];
   writeJsonAtomic(childKey, updated);
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: ctx.workspaceId,
     event_type: "federation_linked" as const,
@@ -265,7 +266,7 @@ executionRouter.post("/child-runtimes", requireRole(["admin", "operator"]), (req
   } satisfies GovernanceEvent);
 
   res.status(201).json({ child_id: body.child_id, child_workspace_id: body.child_workspace_id, registered_at: now });
-});
+}));
 
 /** GET /api/v1/execution/child-runtimes */
 executionRouter.get("/child-runtimes", (req: Request, res: Response) => {

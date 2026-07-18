@@ -13,6 +13,7 @@ import type { ArtifactType } from "@commons-board/shared";
 import { writeArtifact, getArtifact, getArtifactHistory, ArtifactValidationError } from "../lib/artifact-store.js";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { getAddinArtifactTypes } from "../lib/addin-registry.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const artifactsRouter = Router();
 
@@ -34,33 +35,33 @@ function parseType(raw: string): ArtifactType | null {
 artifactsRouter.use(requireContext);
 
 /** GET /api/v1/artifacts/:type/latest */
-artifactsRouter.get("/:type/latest", (req: Request, res: Response) => {
+artifactsRouter.get("/:type/latest", asyncHandler(async (req: Request, res: Response) => {
   const type = parseType(req.params.type);
   if (!type) {
     res.status(400).json({ error: "unsupported artifact type" });
     return;
   }
-  const record = getArtifact(req.ctx!.workspaceId, type);
+  const record = await getArtifact(req.ctx!.workspaceId, type);
   if (!record) {
     res.status(404).json({ error: "artifact not found" });
     return;
   }
   res.status(200).json(record);
-});
+}));
 
 /** GET /api/v1/artifacts/:type */
-artifactsRouter.get("/:type", (req: Request, res: Response) => {
+artifactsRouter.get("/:type", asyncHandler(async (req: Request, res: Response) => {
   const type = parseType(req.params.type);
   if (!type) {
     res.status(400).json({ error: "unsupported artifact type" });
     return;
   }
-  const history = getArtifactHistory(req.ctx!.workspaceId, type);
+  const history = await getArtifactHistory(req.ctx!.workspaceId, type);
   res.status(200).json({ type, versions: history.map((r) => ({ artifact_id: r.artifact_id, version: r.version, created_at: r.created_at })) });
-});
+}));
 
 /** GET /api/v1/artifacts/:type/:version */
-artifactsRouter.get("/:type/:version", (req: Request, res: Response) => {
+artifactsRouter.get("/:type/:version", asyncHandler(async (req: Request, res: Response) => {
   const type = parseType(req.params.type);
   if (!type) {
     res.status(400).json({ error: "unsupported artifact type" });
@@ -71,17 +72,17 @@ artifactsRouter.get("/:type/:version", (req: Request, res: Response) => {
     res.status(400).json({ error: "version must be a positive integer" });
     return;
   }
-  const history = getArtifactHistory(req.ctx!.workspaceId, type);
+  const history = await getArtifactHistory(req.ctx!.workspaceId, type);
   const record = history.find((r) => r.version === ver);
   if (!record) {
     res.status(404).json({ error: "artifact not found" });
     return;
   }
   res.status(200).json(record);
-});
+}));
 
 /** POST /api/v1/artifacts/:type */
-artifactsRouter.post("/:type", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+artifactsRouter.post("/:type", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const type = parseType(req.params.type);
   if (!type) {
     res.status(400).json({ error: "unsupported artifact type" });
@@ -89,7 +90,7 @@ artifactsRouter.post("/:type", requireRole(["admin", "operator"]), (req: Request
   }
   const payload = (req.body as { payload?: unknown })?.payload ?? req.body;
   try {
-    const record = writeArtifact(req.ctx!.workspaceId, type, payload, req.ctx!.userId);
+    const record = await writeArtifact(req.ctx!.workspaceId, type, payload, req.ctx!.userId);
     res.status(201).json(record);
   } catch (err) {
     if (err instanceof ArtifactValidationError) {
@@ -98,4 +99,4 @@ artifactsRouter.post("/:type", requireRole(["admin", "operator"]), (req: Request
     }
     throw err;
   }
-});
+}));

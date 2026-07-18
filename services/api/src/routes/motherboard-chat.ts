@@ -83,7 +83,7 @@ async function executeBoardChat(
 
   const updatedSession = applyInterpretation(workspaceId, threadId, spec);
 
-  const blueprintRecord = getArtifact(workspaceId, "agent_blueprint");
+  const blueprintRecord = await getArtifact(workspaceId, "agent_blueprint");
   const blueprint = blueprintRecord
     ? (blueprintRecord.payload as Record<string, unknown>)
     : { chairs: [] };
