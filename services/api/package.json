@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "node --import tsx --watch src/index.ts",
     "migrate": "node --import tsx src/lib/db-migrate.ts",
-    "test": "node --import tsx --test 'src/__tests__/**/*.test.ts'"
+    "test": "node --import tsx --test 'src/__tests__/**/*.test.ts'",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@commons-board/connectors": "*",
