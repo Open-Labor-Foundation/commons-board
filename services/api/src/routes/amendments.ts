@@ -49,7 +49,7 @@ amendmentsRouter.post("/", requireRole(["admin", "operator", "member"]), asyncHa
   const amendProtocol = cc?.amendment_protocol as Record<string, unknown> | undefined;
   const noticePeriodHours = body.notice_period_hours ?? (amendProtocol?.notice_period_hours as number ?? 24);
 
-  const amendment = proposeAmendment({
+  const amendment = await proposeAmendment({
     orgId,
     artifactType: body.artifact_type,
     proposedBy: actor,
@@ -61,25 +61,25 @@ amendmentsRouter.post("/", requireRole(["admin", "operator", "member"]), asyncHa
 }));
 
 /** GET /api/v1/amendments */
-amendmentsRouter.get("/", (req: Request, res: Response) => {
+amendmentsRouter.get("/", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const status = req.query.status as string | undefined;
-  const amendments = listAmendments(orgId, status as Parameters<typeof listAmendments>[1]);
+  const amendments = await listAmendments(orgId, status as Parameters<typeof listAmendments>[1]);
   res.status(200).json({ amendments, total: amendments.length });
-});
+}));
 
 /** GET /api/v1/amendments/:id */
-amendmentsRouter.get("/:id", (req: Request, res: Response) => {
+amendmentsRouter.get("/:id", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
-  const amendment = getAmendment(orgId, req.params.id);
+  const amendment = await getAmendment(orgId, req.params.id);
   if (!amendment) { res.status(404).json({ error: "amendment not found" }); return; }
 
   // Include associated vote if in voting stage
   let vote = null;
-  if (amendment.vote_id) vote = getVote(orgId, amendment.vote_id);
+  if (amendment.vote_id) vote = await getVote(orgId, amendment.vote_id);
 
   res.status(200).json({ amendment, vote });
-});
+}));
 
 /** POST /api/v1/amendments/:id/advance */
 amendmentsRouter.post("/:id/advance", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
@@ -98,7 +98,7 @@ amendmentsRouter.post("/:id/advance", requireRole(["admin", "operator"]), asyncH
   const amendProtocol = cc?.amendment_protocol as Record<string, unknown> | undefined;
 
   try {
-    const amendment = advanceAmendment({
+    const amendment = await advanceAmendment({
       orgId,
       amendmentId: req.params.id,
       actor,
@@ -119,7 +119,7 @@ amendmentsRouter.post("/:id/apply", requireRole(["admin", "operator"]), asyncHan
   const actor = req.ctx!.userId;
 
   try {
-    const amendment = applyAmendment(orgId, req.params.id, actor);
+    const amendment = await applyAmendment(orgId, req.params.id, actor);
     if (amendment.status !== "applied") {
       res.status(200).json({ amendment, artifact_updated: false, reason: "vote did not pass" });
       return;

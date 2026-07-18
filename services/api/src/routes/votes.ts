@@ -51,7 +51,7 @@ votesRouter.post("/", requireRole(["admin", "operator"]), asyncHandler(async (re
   const cc = await collectiveConfig(orgId);
   const voting = cc?.voting as Record<string, unknown> | undefined;
 
-  const vote = openVote({
+  const vote = await openVote({
     orgId,
     decisionId: body.decision_id,
     decisionType: body.decision_type,
@@ -66,21 +66,21 @@ votesRouter.post("/", requireRole(["admin", "operator"]), asyncHandler(async (re
 }));
 
 /** GET /api/v1/votes */
-votesRouter.get("/", (req: Request, res: Response) => {
+votesRouter.get("/", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const status = req.query.status as string | undefined;
-  const votes = listVotes(orgId, status as Parameters<typeof listVotes>[1]);
+  const votes = await listVotes(orgId, status as Parameters<typeof listVotes>[1]);
   res.status(200).json({ votes, total: votes.length });
-});
+}));
 
 /** GET /api/v1/votes/:id */
-votesRouter.get("/:id", (req: Request, res: Response) => {
+votesRouter.get("/:id", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
-  const vote = getVote(orgId, req.params.id);
+  const vote = await getVote(orgId, req.params.id);
   if (!vote) { res.status(404).json({ error: "vote not found" }); return; }
-  const ballots = getVoteBallots(orgId, vote.vote_id);
+  const ballots = await getVoteBallots(orgId, vote.vote_id);
   res.status(200).json({ vote, ballots });
-});
+}));
 
 /** POST /api/v1/votes/:id/cast */
 votesRouter.post("/:id/cast", requireRole(["admin", "operator", "member"]), asyncHandler(async (req: Request, res: Response) => {
@@ -97,7 +97,7 @@ votesRouter.post("/:id/cast", requireRole(["admin", "operator", "member"]), asyn
   const activeMemberCount = ((cc?.membership as Record<string, number>)?.active_member_count) ?? 1;
 
   try {
-    const result = castBallot({
+    const result = await castBallot({
       orgId,
       voteId: req.params.id,
       memberId: body.member_id ?? actor,
@@ -108,7 +108,7 @@ votesRouter.post("/:id/cast", requireRole(["admin", "operator", "member"]), asyn
     // Track contribution if contribution_tracking is enabled
     const ct = (cc?.contribution_tracking as Record<string, unknown>) ?? {};
     if (ct.enabled && Array.isArray(ct.tracked_actions) && (ct.tracked_actions as string[]).includes("vote")) {
-      recordContribution({ orgId, memberId: body.member_id ?? actor, actionType: "vote" });
+      await recordContribution({ orgId, memberId: body.member_id ?? actor, actionType: "vote" });
     }
 
     res.status(200).json({ ballot: result.ballot, quorum_reached: result.quorum_reached, tally: result.vote.tally });
@@ -126,7 +126,7 @@ votesRouter.post("/:id/resolve", requireRole(["admin", "operator"]), asyncHandle
   const activeMemberCount = ((cc?.membership as Record<string, number>)?.active_member_count) ?? 1;
 
   try {
-    const result = resolveVote(orgId, req.params.id, actor, activeMemberCount);
+    const result = await resolveVote(orgId, req.params.id, actor, activeMemberCount);
     res.status(200).json({ vote: result.vote, outcome: result.outcome });
   } catch (err) {
     res.status(409).json({ error: err instanceof Error ? err.message : "resolve error" });
