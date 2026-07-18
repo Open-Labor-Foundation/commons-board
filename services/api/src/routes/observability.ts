@@ -23,6 +23,7 @@ import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { loopBottlenecks } from "../lib/operational-loop.js";
 import { getLog } from "../lib/decision-log.js";
 import { getArtifact } from "../lib/artifact-store.js";
+import { listApprovals } from "../lib/approval-store.js";
 import { asyncHandler } from "../lib/async-handler.js";
 
 export const observabilityRouter = Router();
@@ -62,7 +63,7 @@ observabilityRouter.get("/error-counts", asyncHandler(async (req: Request, res: 
     []
   );
   const decisionLog = await getLog(workspaceId);
-  const approvals = readJson<Array<{ status: string }>>(`approval-records/${workspaceId}`, []);
+  const approvals = await listApprovals(workspaceId);
   const failedRuns = execRuns.filter((r) => r.status === "failed").length;
   const rejectedApprovals = approvals.filter((a) => a.status === "rejected").length;
   res.status(200).json({

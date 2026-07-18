@@ -16,22 +16,13 @@ import { Router, type Request, type Response } from "express";
 import type { ApprovalRecord } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { appendEvent } from "../lib/decision-log.js";
-import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { classifyAction } from "../lib/verification-policy.js";
 import { getArtifact } from "../lib/artifact-store.js";
 import { asyncHandler } from "../lib/async-handler.js";
+import { createApproval, getApproval, listApprovals, updateApproval } from "../lib/approval-store.js";
 
 export const approvalsRouter = Router();
 approvalsRouter.use(requireContext);
-
-function approvalKey(orgId: string) { return `approvals/${orgId}`; }
-
-function loadApprovals(orgId: string): ApprovalRecord[] {
-  return readJson<ApprovalRecord[]>(approvalKey(orgId), []);
-}
-function saveApprovals(orgId: string, records: ApprovalRecord[]): void {
-  writeJsonAtomic(approvalKey(orgId), records);
-}
 
 /** POST /api/v1/approvals */
 approvalsRouter.post("/", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
@@ -104,55 +95,49 @@ approvalsRouter.post("/", requireRole(["admin", "operator"]), asyncHandler(async
     at: record.created_at
   });
 
-  const all = loadApprovals(orgId);
-  all.push(record);
-  saveApprovals(orgId, all);
-  res.status(201).json(record);
+  const saved = await createApproval(record);
+  res.status(201).json(saved);
 }));
 
 /** GET /api/v1/approvals */
-approvalsRouter.get("/", (req: Request, res: Response) => {
+approvalsRouter.get("/", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
-  const status = req.query.status as string | undefined;
-  const all = loadApprovals(orgId);
-  const filtered = status ? all.filter((a) => a.status === status) : all;
+  const status = req.query.status as ApprovalRecord["status"] | undefined;
+  const filtered = await listApprovals(orgId, status);
   res.status(200).json({ approvals: filtered, total: filtered.length });
-});
+}));
 
 /** GET /api/v1/approvals/:id */
-approvalsRouter.get("/:id", (req: Request, res: Response) => {
+approvalsRouter.get("/:id", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
-  const record = loadApprovals(orgId).find((a) => a.approval_id === req.params.id);
+  const record = await getApproval(orgId, req.params.id);
   if (!record) { res.status(404).json({ error: "approval not found" }); return; }
   res.status(200).json(record);
-});
+}));
 
 /** POST /api/v1/approvals/:id/approve */
 approvalsRouter.post("/:id/approve", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const { note } = req.body as { note?: string };
-  const all = loadApprovals(orgId);
-  const idx = all.findIndex((a) => a.approval_id === req.params.id);
-  if (idx < 0) { res.status(404).json({ error: "approval not found" }); return; }
-  const record = { ...all[idx] };
-  if (record.status !== "pending") {
-    res.status(409).json({ error: `approval is already ${record.status}` });
+  const existing = await getApproval(orgId, req.params.id);
+  if (!existing) { res.status(404).json({ error: "approval not found" }); return; }
+  if (existing.status !== "pending") {
+    res.status(409).json({ error: `approval is already ${existing.status}` });
     return;
   }
-  const alreadyVoted = record.responses.find((r) => r.approver_id === actor);
+  const alreadyVoted = existing.responses.find((r) => r.approver_id === actor);
   if (alreadyVoted) {
     res.status(409).json({ error: "you have already responded to this approval" });
     return;
   }
-  record.responses = [...record.responses, { approver_id: actor, decision: "approve", note: note ?? "", at: new Date().toISOString() }];
-  const approveCount = record.responses.filter((r) => r.decision === "approve").length;
-  if (approveCount >= record.required_approvers) {
-    record.status = "approved";
-    record.resolved_at = new Date().toISOString();
-  }
-  all[idx] = record;
-  saveApprovals(orgId, all);
+  const responses = [...existing.responses, { approver_id: actor, decision: "approve" as const, note: note ?? "", at: new Date().toISOString() }];
+  const approveCount = responses.filter((r) => r.decision === "approve").length;
+  const status: ApprovalRecord["status"] = approveCount >= existing.required_approvers ? "approved" : "pending";
+  const resolvedAt = status === "approved" ? new Date().toISOString() : null;
+
+  const updated = await updateApproval(orgId, req.params.id, { status, responses, resolved_at: resolvedAt });
+  if (!updated) { res.status(404).json({ error: "approval not found" }); return; }
 
   await appendEvent({
     event_id: randomUUID(),
@@ -161,11 +146,11 @@ approvalsRouter.post("/:id/approve", requireRole(["admin", "operator"]), asyncHa
     actor,
     artifact_type: null,
     artifact_id: null,
-    details: { approval_id: record.approval_id, action_id: record.action_id, decision: "approve", status: record.status },
+    details: { approval_id: updated.approval_id, action_id: updated.action_id, decision: "approve", status: updated.status },
     at: new Date().toISOString()
   });
 
-  res.status(200).json(record);
+  res.status(200).json(updated);
 }));
 
 /** POST /api/v1/approvals/:id/reject */
@@ -173,19 +158,17 @@ approvalsRouter.post("/:id/reject", requireRole(["admin", "operator"]), asyncHan
   const orgId = req.ctx!.workspaceId;
   const actor = req.ctx!.userId;
   const { note } = req.body as { note?: string };
-  const all = loadApprovals(orgId);
-  const idx = all.findIndex((a) => a.approval_id === req.params.id);
-  if (idx < 0) { res.status(404).json({ error: "approval not found" }); return; }
-  const record = { ...all[idx] };
-  if (record.status !== "pending") {
-    res.status(409).json({ error: `approval is already ${record.status}` });
+  const existing = await getApproval(orgId, req.params.id);
+  if (!existing) { res.status(404).json({ error: "approval not found" }); return; }
+  if (existing.status !== "pending") {
+    res.status(409).json({ error: `approval is already ${existing.status}` });
     return;
   }
-  record.responses = [...record.responses, { approver_id: actor, decision: "reject", note: note ?? "", at: new Date().toISOString() }];
-  record.status = "rejected";
-  record.resolved_at = new Date().toISOString();
-  all[idx] = record;
-  saveApprovals(orgId, all);
+  const responses = [...existing.responses, { approver_id: actor, decision: "reject" as const, note: note ?? "", at: new Date().toISOString() }];
+  const resolvedAt = new Date().toISOString();
+
+  const updated = await updateApproval(orgId, req.params.id, { status: "rejected", responses, resolved_at: resolvedAt });
+  if (!updated) { res.status(404).json({ error: "approval not found" }); return; }
 
   await appendEvent({
     event_id: randomUUID(),
@@ -194,9 +177,9 @@ approvalsRouter.post("/:id/reject", requireRole(["admin", "operator"]), asyncHan
     actor,
     artifact_type: null,
     artifact_id: null,
-    details: { approval_id: record.approval_id, action_id: record.action_id, decision: "reject", status: "rejected" },
+    details: { approval_id: updated.approval_id, action_id: updated.action_id, decision: "reject", status: "rejected" },
     at: new Date().toISOString()
   });
 
-  res.status(200).json(record);
+  res.status(200).json(updated);
 }));

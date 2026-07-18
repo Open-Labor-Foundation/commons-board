@@ -32,7 +32,8 @@ import { randomUUID } from "node:crypto";
 import type { GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { getArtifact } from "../lib/artifact-store.js";
-import { appendEvent } from "../lib/decision-log.js";
+import { appendEvent, getLog } from "../lib/decision-log.js";
+import { listApprovals } from "../lib/approval-store.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { dispatchWebhookEvent } from "../lib/webhook-delivery.js";
 import { asyncHandler } from "../lib/async-handler.js";
@@ -273,30 +274,30 @@ crewBridgeRouter.get("/board-summary", requireCrewAuth, asyncHandler(async (req:
 }));
 
 /** GET /api/v1/crew-bridge/events */
-crewBridgeRouter.get("/events", requireCrewAuth, (req: Request, res: Response) => {
+crewBridgeRouter.get("/events", requireCrewAuth, asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
   const limitParam = Number(req.query.limit ?? 50);
   const limit = Math.min(Math.max(1, limitParam), 200);
   const sinceParam = req.query.since ? String(req.query.since) : null;
 
-  type DecisionLogEntry = { event: { event_type: string; at: string } };
-  const allEntries = readJson<DecisionLogEntry[]>(`decision-log/${workspaceId}`, []);
+  const allEntries = await getLog(workspaceId);
   const filtered = sinceParam
     ? allEntries.filter((e) => e.event.at > sinceParam)
     : allEntries;
   const recent = filtered.slice(-limit).map((e) => e.event);
 
   res.status(200).json({ events: recent, total: recent.length, limit });
-});
+}));
 
 /** GET /api/v1/crew-bridge/actions */
-crewBridgeRouter.get("/actions", requireCrewAuth, (req: Request, res: Response) => {
+crewBridgeRouter.get("/actions", requireCrewAuth, asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
 
-  type Approval = { status: string; action_id: string; created_at: string };
-  const approvals = readJson<Approval[]>(`approvals/${workspaceId}`, []).filter(
-    (a) => a.status === "pending"
-  );
+  const approvals = (await listApprovals(workspaceId, "pending")).map((a) => ({
+    status: a.status,
+    action_id: a.action_id,
+    created_at: a.created_at,
+  }));
 
   type Level4Action = { status: string; type: string; id: string; createdAt: string };
   const level4Actions = readJson<Level4Action[]>(`level4-actions/${workspaceId}`, []).filter(
@@ -314,7 +315,7 @@ crewBridgeRouter.get("/actions", requireCrewAuth, (req: Request, res: Response) 
     pending_board_requests: boardRequests,
     total: approvals.length + level4Actions.length + boardRequests.length
   });
-});
+}));
 
 /** GET /api/v1/crew-bridge/briefs */
 crewBridgeRouter.get("/briefs", requireCrewAuth, (req: Request, res: Response) => {

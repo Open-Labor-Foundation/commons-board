@@ -20,6 +20,7 @@ import { getArtifact } from "../lib/artifact-store.js";
 import { asyncHandler } from "../lib/async-handler.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { appendEvent } from "../lib/decision-log.js";
+import { listApprovals } from "../lib/approval-store.js";
 import { createJob, getJob, listJobs, registerWorkspace, buildWorkerSystemPrompt } from "../services/agent-job-runner.js";
 import { completeChat } from "../lib/model-client.js";
 
@@ -79,10 +80,6 @@ function workerActionsKey(workspaceId: string): string {
   return `worker-actions/${workspaceId}`;
 }
 
-function approvalKey(workspaceId: string): string {
-  return `approvals/${workspaceId}`;
-}
-
 function loadWorkerActions(workspaceId: string): WorkerAction[] {
   return readJson<WorkerAction[]>(workerActionsKey(workspaceId), []);
 }
@@ -91,8 +88,8 @@ function saveWorkerActions(workspaceId: string, actions: WorkerAction[]): void {
   writeJsonAtomic(workerActionsKey(workspaceId), actions);
 }
 
-function loadApprovals(workspaceId: string): ApprovalRecord[] {
-  return readJson<ApprovalRecord[]>(approvalKey(workspaceId), []);
+async function loadApprovals(workspaceId: string): Promise<ApprovalRecord[]> {
+  return listApprovals(workspaceId);
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +151,7 @@ workersRouter.get("/", asyncHandler(async (req: Request, res: Response) => {
   }
 
   const actions = loadWorkerActions(workspaceId);
-  const approvals = loadApprovals(workspaceId);
+  const approvals = await loadApprovals(workspaceId);
 
   const workers = [];
   for (const chair of chairs) {
@@ -200,7 +197,7 @@ workersRouter.get("/:agentId", asyncHandler(async (req: Request, res: Response) 
 
   const { worker, chair } = found;
   const actions = loadWorkerActions(workspaceId);
-  const approvals = loadApprovals(workspaceId);
+  const approvals = await loadApprovals(workspaceId);
 
   const workerActions = actions.filter((a) => a.agent_id === agentId);
   const currentTask = workerActions.find(
@@ -504,7 +501,7 @@ workersRouter.get("/by-chair/:chairId", asyncHandler(async (req: Request, res: R
   }
 
   const actions = loadWorkerActions(workspaceId);
-  const approvals = loadApprovals(workspaceId);
+  const approvals = await loadApprovals(workspaceId);
   const domainApprovals = approvals.filter(
     (a) => a.status === "pending" && String(a.details?.chair ?? "") === chairId
   );

@@ -12,6 +12,7 @@
 import type { BoardDomain } from "@commons-board/shared";
 import { readJson } from "../lib/persistence.js";
 import { getLog } from "../lib/decision-log.js";
+import { listApprovals } from "../lib/approval-store.js";
 import {
   capabilityCatalog,
   dashboardCatalog,
@@ -60,10 +61,7 @@ function trendFromValue(value: number): "up" | "flat" | "down" {
 }
 
 async function workspaceSignals(workspaceId: string): Promise<Record<string, number>> {
-  const approvals = readJson<Array<{ status: string }>>(
-    `approval-records/${workspaceId}`,
-    []
-  );
+  const approvals = await listApprovals(workspaceId);
   const requests = readJson<Array<{ status: string }>>(
     `board-requests/${workspaceId}`,
     []
