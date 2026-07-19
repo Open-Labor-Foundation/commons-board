@@ -70,9 +70,13 @@ async function appendEventDb(event: GovernanceEvent): Promise<DecisionLogEntry> 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // Lock the org's rows to serialize sequence assignment.
+    // Lock the orgs row to serialize sequence assignment for this org.
+    // (FOR UPDATE is not allowed with aggregate functions, so we lock the
+    // parent orgs row instead — any concurrent appendEventDb for the same
+    // org blocks here until the first transaction commits.)
+    await client.query("SELECT 1 FROM orgs WHERE id = $1 FOR UPDATE", [event.org_id]);
     const { rows } = await client.query(
-      "SELECT COALESCE(MAX(sequence), -1) AS max_seq FROM decision_log WHERE org_id = $1 FOR UPDATE",
+      "SELECT COALESCE(MAX(sequence), -1) AS max_seq FROM decision_log WHERE org_id = $1",
       [event.org_id]
     );
     const sequence = (rows[0].max_seq as number) + 1;
@@ -133,8 +137,10 @@ export async function getLog(orgId: string): Promise<DecisionLogEntry[]> {
       entry_id: r.entry_id,
       org_id: r.org_id,
       sequence: r.sequence,
-      event: r.event,
-      signed: r.signed,
+      // event and signed are stored as TEXT (exact JSON strings) to preserve
+      // hash fidelity. Parse back to objects for the API response.
+      event: typeof r.event === "string" ? JSON.parse(r.event) : r.event,
+      signed: typeof r.signed === "string" ? JSON.parse(r.signed) : r.signed,
       previous_hash: r.previous_hash,
       entry_hash: r.entry_hash,
       at: r.at
@@ -145,6 +151,43 @@ export async function getLog(orgId: string): Promise<DecisionLogEntry[]> {
 
 /** Verify the full chain for an org: hashes link and signatures hold. */
 export async function verifyLog(orgId: string): Promise<{ valid: boolean; brokenAt: number | null }> {
+  if (isDatabaseEnabled()) {
+    // When reading from Postgres, event and signed are stored as TEXT (exact
+    // JSON strings). We must recompute the hash using those exact strings,
+    // not parsed-then-restringified objects (which may have different key
+    // order). This function reads the raw TEXT and reconstructs the hash input.
+    const { rows } = await query(
+      "SELECT entry_id, org_id, sequence, event, signed, previous_hash, entry_hash, at FROM decision_log WHERE org_id = $1 ORDER BY sequence",
+      [orgId]
+    );
+    let previousHash = GENESIS_HASH;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.previous_hash !== previousHash) return { valid: false, brokenAt: i };
+      // Reconstruct the hash input using the stored TEXT strings directly.
+      // The original hash was computed from JSON.stringify(base) where
+      // base.event and base.signed were objects. We stored JSON.stringify(event)
+      // and JSON.stringify(signed) as TEXT. To reproduce the exact same
+      // JSON.stringify output, we parse the stored strings back to objects
+      // (which gives us the same key order as the original objects, since the
+      // strings were produced by JSON.stringify on those same objects).
+      const eventObj = typeof r.event === "string" ? JSON.parse(r.event) : r.event;
+      const signedObj = typeof r.signed === "string" ? JSON.parse(r.signed) : r.signed;
+      const rest = {
+        entry_id: r.entry_id,
+        org_id: r.org_id,
+        sequence: r.sequence,
+        event: eventObj,
+        signed: signedObj,
+        previous_hash: r.previous_hash,
+        at: r.at
+      };
+      if (entryHash(rest) !== r.entry_hash) return { valid: false, brokenAt: i };
+      previousHash = r.entry_hash;
+    }
+    return { valid: true, brokenAt: null };
+  }
+  // File-backed: objects are read from JSON with preserved key order.
   const log = await getLog(orgId);
   let previousHash = GENESIS_HASH;
   for (let i = 0; i < log.length; i++) {
