@@ -143,7 +143,9 @@ export async function getLog(orgId: string): Promise<DecisionLogEntry[]> {
       signed: typeof r.signed === "string" ? JSON.parse(r.signed) : r.signed,
       previous_hash: r.previous_hash,
       entry_hash: r.entry_hash,
-      at: r.at
+      // Postgres returns TIMESTAMPTZ as a JS Date; normalize to ISO string
+      // to match the format used when the hash was computed (new Date().toISOString()).
+      at: r.at instanceof Date ? r.at.toISOString() : r.at
     })) as DecisionLogEntry[];
   }
   return loadLogFile(orgId);
@@ -180,7 +182,9 @@ export async function verifyLog(orgId: string): Promise<{ valid: boolean; broken
         event: eventObj,
         signed: signedObj,
         previous_hash: r.previous_hash,
-        at: r.at
+        // Postgres returns TIMESTAMPTZ as a JS Date; normalize to ISO string
+        // so JSON.stringify produces the same format as the original hash input.
+        at: r.at instanceof Date ? r.at.toISOString() : r.at
       };
       if (entryHash(rest) !== r.entry_hash) return { valid: false, brokenAt: i };
       previousHash = r.entry_hash;
