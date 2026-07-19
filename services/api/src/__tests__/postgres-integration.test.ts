@@ -79,8 +79,15 @@ async function ensureOrgRow(orgId: string): Promise<void> {
 
 describe("Postgres integration tests", { concurrency: false }, () => {
   before(async () => {
-    // Check if the test Postgres is reachable
-    const probe = new pg.Pool({ connectionString: TEST_DB_URL, max: 1 });
+    // Check if the test Postgres is reachable.
+    // connectionTimeoutMillis is critical: without it, pg defaults to no
+    // timeout and probe.connect() hangs forever when the host is unreachable
+    // (not refused — just no route), which hangs the entire test runner.
+    const probe = new pg.Pool({
+      connectionString: TEST_DB_URL,
+      max: 1,
+      connectionTimeoutMillis: 3000,
+    });
     try {
       const client = await probe.connect();
       client.release();

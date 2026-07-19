@@ -19,6 +19,10 @@ const SCHEMA_FILES: Record<ArtifactType, string> = {
   cadence_protocol: "cadence_protocol.schema.json",
   agent_blueprint: "agent_blueprint.schema.json",
   collective_config: "collective_config.schema.json",
+  venture_profile: "venture_profile.schema.json",
+  launch_plan: "launch_plan.schema.json",
+  tooling_plan: "tooling_plan.schema.json",
+  financial_policy: "financial_policy.schema.json",
 };
 
 const validators = new Map<ArtifactType, ValidateFunction>();
