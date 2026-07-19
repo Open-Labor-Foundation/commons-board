@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "node --import tsx --watch src/index.ts",
     "migrate": "node --import tsx src/lib/db-migrate.ts",
+    "backfill": "node --import tsx src/lib/db-backfill.ts",
     "test": "node --import tsx --test 'src/__tests__/**/*.test.ts'",
     "lint": "eslint src"
   },
