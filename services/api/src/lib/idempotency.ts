@@ -3,14 +3,14 @@
  *
  * Clients may send X-Idempotency-Key (a UUID) on any mutating request.
  * A second request with the same key returns 409 with the outcome of the
- * first request rather than processing again. Keys are scoped to the
- * process lifetime (in-memory map); persistent idempotency store is a
- * future phase.
+ * first request rather than processing again.
+ *
+ * Uses the persistent idempotency store (Postgres when DATABASE_URL is
+ * set, file-backed JSON otherwise). This replaces the in-memory Map that
+ * was process-lifetime only.
  */
 import type { NextFunction, Request, Response } from "express";
-
-type IdempotencyEntry = { processed_at: string; status: number };
-const store = new Map<string, IdempotencyEntry>();
+import { tryRegisterIdempotency, completeIdempotency } from "./idempotency-store.js";
 
 export function idempotencyGuard(req: Request, res: Response, next: NextFunction): void {
   const key = req.header("x-idempotency-key");
@@ -19,18 +19,43 @@ export function idempotencyGuard(req: Request, res: Response, next: NextFunction
     return;
   }
 
-  const existing = store.get(key);
-  if (existing) {
-    res.status(409).json({ error: "duplicate request", idempotency_key: key, original: existing });
-    return;
-  }
+  // Derive workspace from request context if available
+  const workspaceId = (req as unknown as { workspaceId?: string }).workspaceId;
+  const scope = `${req.method}:${req.path}`;
 
-  const entry: IdempotencyEntry = { processed_at: new Date().toISOString(), status: 202 };
-  store.set(key, entry);
+  void (async () => {
+    try {
+      const { accepted, existing } = await tryRegisterIdempotency({
+        workspaceId,
+        scope,
+        key
+      });
 
-  res.on("finish", () => {
-    store.set(key, { ...entry, status: res.statusCode });
-  });
+      if (!accepted && existing) {
+        // Return the original response
+        res.status(existing.status);
+        if (existing.response !== undefined) {
+          res.json(existing.response);
+        } else {
+          res.json({ error: "duplicate request", idempotency_key: key, original: { status: existing.status } });
+        }
+        return;
+      }
 
-  next();
+      // New key — proceed with the request, capture the response
+      res.on("finish", () => {
+        void completeIdempotency({
+          workspaceId,
+          scope,
+          key,
+          status: res.statusCode
+        });
+      });
+
+      next();
+    } catch {
+      // If the store fails, proceed without idempotency (fail-open)
+      next();
+    }
+  })();
 }
