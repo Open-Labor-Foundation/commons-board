@@ -1,9 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { apiFetch } from "../lib/api";
+import { apiFetch, apiPost } from "../lib/api";
+
+type SessionUser = {
+  userId: string;
+  workspaceId: string;
+  role: string;
+  legacy?: boolean;
+};
 
 type NavItem = { href: string; label: string; badge?: "approvals" };
 type NavSection = { heading: string; items: NavItem[] };
@@ -50,11 +57,13 @@ type BadgeCounts = { approvals: number };
 
 export default function NavShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [orgName, setOrgName] = useState("");
   const [boardReady, setBoardReady] = useState<boolean | null>(null);
   const [badges, setBadges] = useState<BadgeCounts>({ approvals: 0 });
   const [addinSections, setAddinSections] = useState<NavSection[]>([]);
   const [dark, setDark] = useState(false);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
   useEffect(() => {
     try { setDark(localStorage.getItem("cb-theme") === "dark"); } catch { /* ignore */ }
@@ -75,6 +84,19 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    // Check session status — if session auth is enabled and user is not
+    // authenticated, redirect to login.
+    apiFetch<{ authenticated: boolean; userId?: string; workspaceId?: string; role?: string; legacy?: boolean }>("/api/v1/auth/me").then((me) => {
+      if (me && me.authenticated) {
+        setSessionUser({
+          userId: me.userId ?? "admin",
+          workspaceId: me.workspaceId ?? "default",
+          role: me.role ?? "admin",
+          legacy: me.legacy,
+        });
+      }
+    });
+
     apiFetch<{ org_name?: string }>("/api/v1/settings").then((s) => {
       if (s?.org_name) setOrgName(s.org_name);
     });
@@ -97,6 +119,12 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
     const iv = setInterval(fetchBadges, 30000);
     return () => clearInterval(iv);
   }, []);
+
+  async function handleLogout() {
+    await apiPost("/api/v1/auth/logout", {});
+    setSessionUser(null);
+    router.push("/login");
+  }
 
   const isSetup = pathname === "/setup" || pathname === "/";
   if (isSetup) return <>{children}</>;
@@ -134,6 +162,11 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
               </span>
             </Link>
           )}
+          {sessionUser && !sessionUser.legacy && (
+            <span style={{ fontSize: 12, opacity: 0.8 }}>
+              {sessionUser.userId}
+            </span>
+          )}
           <button
             onClick={toggleTheme}
             title={dark ? "Switch to light mode" : "Switch to dark mode"}
@@ -154,6 +187,26 @@ export default function NavShell({ children }: { children: React.ReactNode }) {
           >
             {dark ? "☀" : "◑"}
           </button>
+          {sessionUser && !sessionUser.legacy && (
+            <button
+              onClick={handleLogout}
+              title="Sign out"
+              style={{
+                background: "rgba(255,255,255,0.12)",
+                color: "#fff",
+                border: "none",
+                borderRadius: "var(--radius)",
+                height: 30,
+                padding: "0 12px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              Sign out
+            </button>
+          )}
         </div>
       </header>
 

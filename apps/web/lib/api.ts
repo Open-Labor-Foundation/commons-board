@@ -1,15 +1,47 @@
+/**
+ * API client helpers for the web app.
+ *
+ * Identity headers are injected by middleware.ts (from the session cookie
+ * or env vars in legacy mode). The client-side apiHeaders() is kept for
+ * Content-Type and any non-identity headers — the middleware overwrites
+ * x-user-id / x-workspace-id / x-user-role on proxied requests.
+ *
+ * On 401 from the API, the user is redirected to /login (only when
+ * session auth is enabled — checked via the /api/v1/auth/me endpoint).
+ */
+
+let _sessionAuthEnabled: boolean | null = null;
+
+async function checkSessionAuth(): Promise<boolean> {
+  if (_sessionAuthEnabled !== null) return _sessionAuthEnabled;
+  try {
+    const res = await fetch("/api/v1/auth/me");
+    _sessionAuthEnabled = res.status !== 503;
+  } catch {
+    _sessionAuthEnabled = false;
+  }
+  return _sessionAuthEnabled;
+}
+
+function redirectToLogin(): void {
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
+}
+
 export function apiHeaders(): HeadersInit {
   return {
     "Content-Type": "application/json",
-    "x-workspace-id": process.env.NEXT_PUBLIC_COMMONS_WORKSPACE_ID ?? "default",
-    "x-user-id": process.env.NEXT_PUBLIC_COMMONS_USER_ID ?? "operator",
-    "x-user-role": process.env.NEXT_PUBLIC_COMMONS_USER_ROLE ?? "admin",
   };
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
   try {
     const res = await fetch(path, { ...init, headers: { ...apiHeaders(), ...(init?.headers ?? {}) } });
+    if (res.status === 401) {
+      if (await checkSessionAuth()) redirectToLogin();
+      return null;
+    }
     if (!res.ok) return null;
     return res.json() as Promise<T>;
   } catch {
@@ -24,6 +56,9 @@ export async function apiPost<T>(path: string, body: unknown): Promise<{ data: T
       headers: apiHeaders(),
       body: JSON.stringify(body),
     });
+    if (res.status === 401 && (await checkSessionAuth())) {
+      redirectToLogin();
+    }
     const data = res.ok ? ((await res.json()) as T) : null;
     return { data, status: res.status };
   } catch {
@@ -38,6 +73,9 @@ export async function apiPut<T>(path: string, body: unknown): Promise<{ data: T 
       headers: apiHeaders(),
       body: JSON.stringify(body),
     });
+    if (res.status === 401 && (await checkSessionAuth())) {
+      redirectToLogin();
+    }
     const data = res.ok ? ((await res.json()) as T) : null;
     return { data, status: res.status };
   } catch {
@@ -52,6 +90,9 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<{ data: 
       headers: apiHeaders(),
       body: JSON.stringify(body),
     });
+    if (res.status === 401 && (await checkSessionAuth())) {
+      redirectToLogin();
+    }
     const data = res.ok ? ((await res.json()) as T) : null;
     return { data, status: res.status };
   } catch {
@@ -62,6 +103,9 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<{ data: 
 export async function apiDelete(path: string): Promise<boolean> {
   try {
     const res = await fetch(path, { method: "DELETE", headers: apiHeaders() });
+    if (res.status === 401 && (await checkSessionAuth())) {
+      redirectToLogin();
+    }
     return res.ok;
   } catch {
     return false;
