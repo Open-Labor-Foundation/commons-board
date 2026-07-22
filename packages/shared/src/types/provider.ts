@@ -75,6 +75,46 @@ export interface InferenceProvider {
 /** RBAC roles, carried from mother-board and exposed as operator settings. */
 export type Role = "admin" | "operator" | "member" | "observer";
 
+/**
+ * Call types the inference queue tags each request with. Used for per-type
+ * concurrency budgets, priority scheduling, and backpressure shedding.
+ *
+ * Defined here (in the shared package) rather than in inference-queue.ts so
+ * that WorkspaceSettings.inference_queue can reference it without the shared
+ * package importing from the API service. inference-queue.ts re-exports these.
+ */
+export type InferenceCallType =
+  | "chair_deliberation"
+  | "chair_summarize"
+  | "task_extraction"
+  | "board_synthesis"
+  | "worker_dispatch";
+
+/**
+ * Per-call-type budget. The queue keeps an independent concurrency budget per
+ * type (separate from the provider's global maxParallel). Partial overrides
+ * merge on top of the code defaults, so every field is optional here.
+ */
+export interface CallTypeConfig {
+  maxConcurrent: number;
+  timeoutMs: number;
+  maxRetries: number;
+}
+
+/**
+ * Workspace-level overrides for the inference queue. Stored under
+ * WorkspaceSettings.inference_queue. Precedence (low → high):
+ *   code defaults < env vars (CB_INFERENCE_*) < these workspace settings.
+ */
+export interface InferenceQueueSettings {
+  /** Partial per-type config overrides; merged on top of the env-adjusted defaults. */
+  call_type_overrides?: Partial<Record<InferenceCallType, Partial<CallTypeConfig>>>;
+  /** Override the global queue-depth backpressure limit for this workspace. */
+  max_queue_depth?: number;
+  /** When true, emit JSON telemetry events to console after each call. */
+  enable_telemetry?: boolean;
+}
+
 /** Per-workspace settings, surfaced in the settings menu. */
 export interface WorkspaceSettings {
   workspace_id: string;
@@ -93,5 +133,7 @@ export interface WorkspaceSettings {
   };
   /** URL of the add-in catalog JSON. Overrides ADDINS_CATALOG_URL env var. */
   addin_catalog_url?: string;
+  /** Inference queue tuning (concurrency budgets, queue depth, telemetry). */
+  inference_queue?: InferenceQueueSettings;
   updated_at: string;
 }

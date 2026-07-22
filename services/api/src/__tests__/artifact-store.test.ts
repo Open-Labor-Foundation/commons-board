@@ -33,62 +33,62 @@ describe("artifact-store", () => {
     removeTestDataDir(dir);
   });
 
-  test("getArtifact returns null when no artifact exists", () => {
-    const result = getArtifact(ORG, "business_profile");
+  test("getArtifact returns null when no artifact exists", async () => {
+    const result = await getArtifact(ORG, "business_profile");
     assert.equal(result, null);
   });
 
-  test("writeArtifact persists a valid business_profile", () => {
-    const record = writeArtifact(ORG, "business_profile", validBusinessProfile, "system");
+  test("writeArtifact persists a valid business_profile", async () => {
+    const record = await writeArtifact(ORG, "business_profile", validBusinessProfile, "system");
     assert.equal(record.type, "business_profile");
     assert.ok(record.artifact_id, "artifact_id should be set");
     assert.equal(record.version, 1);
   });
 
-  test("getArtifact returns the latest written artifact", () => {
-    writeArtifact(ORG, "business_profile", validBusinessProfile, "system");
-    const fetched = getArtifact(ORG, "business_profile");
+  test("getArtifact returns the latest written artifact", async () => {
+    await writeArtifact(ORG, "business_profile", validBusinessProfile, "system");
+    const fetched = await getArtifact(ORG, "business_profile");
     assert.ok(fetched, "artifact should exist");
     assert.equal((fetched.payload as { org_name: string }).org_name, "Test Co");
   });
 
-  test("writeArtifact increments version on each write", () => {
-    writeArtifact(ORG, "business_profile", validBusinessProfile, "system");
-    const v2 = writeArtifact(
+  test("writeArtifact increments version on each write", async () => {
+    await writeArtifact(ORG, "business_profile", validBusinessProfile, "system");
+    const v2 = await writeArtifact(
       ORG,
       "business_profile",
       { ...validBusinessProfile, org_name: "Test Co v2" },
       "system"
     );
     assert.equal(v2.version, 2);
-    const latest = getArtifact(ORG, "business_profile");
+    const latest = await getArtifact(ORG, "business_profile");
     assert.equal((latest?.payload as { org_name: string }).org_name, "Test Co v2");
   });
 
-  test("getArtifactHistory returns all versions in order", () => {
-    writeArtifact(ORG, "business_profile", validBusinessProfile, "user-a");
-    writeArtifact(ORG, "business_profile", { ...validBusinessProfile, org_name: "v2" }, "user-b");
-    const history = getArtifactHistory(ORG, "business_profile");
+  test("getArtifactHistory returns all versions in order", async () => {
+    await writeArtifact(ORG, "business_profile", validBusinessProfile, "user-a");
+    await writeArtifact(ORG, "business_profile", { ...validBusinessProfile, org_name: "v2" }, "user-b");
+    const history = await getArtifactHistory(ORG, "business_profile");
     assert.equal(history.length, 2);
     assert.equal(history[0].version, 1);
     assert.equal(history[1].version, 2);
   });
 
-  test("writeArtifact throws ArtifactValidationError for invalid payload", () => {
+  test("writeArtifact throws ArtifactValidationError for invalid payload", async () => {
     const invalid = { org_id: ORG };
-    assert.throws(
+    await assert.rejects(
       () => writeArtifact(ORG, "business_profile", invalid, "system"),
       ArtifactValidationError
     );
   });
 
-  test("invalid artifact is not persisted after validation failure", () => {
+  test("invalid artifact is not persisted after validation failure", async () => {
     try {
-      writeArtifact(ORG, "business_profile", {}, "system");
+      await writeArtifact(ORG, "business_profile", {}, "system");
     } catch {
       // expected
     }
-    const result = getArtifact(ORG, "business_profile");
+    const result = await getArtifact(ORG, "business_profile");
     assert.equal(result, null);
   });
 });

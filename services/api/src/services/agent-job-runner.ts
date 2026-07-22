@@ -46,8 +46,8 @@ type BlueprintChair = {
   model?: string;
 };
 
-function getChairsFromBlueprint(workspaceId: string): BlueprintChair[] {
-  const record = getArtifact(workspaceId, "agent_blueprint");
+async function getChairsFromBlueprint(workspaceId: string): Promise<BlueprintChair[]> {
+  const record = await getArtifact(workspaceId, "agent_blueprint");
   if (!record) return [];
   const bp = record.payload as Record<string, unknown>;
   return Array.isArray(bp.chairs) ? (bp.chairs as BlueprintChair[]) : [];
@@ -111,7 +111,7 @@ export async function buildWorkerSystemPrompt(
 }
 
 async function executeJob(job: AgentJob): Promise<void> {
-  const chairs = getChairsFromBlueprint(job.workspace_id);
+  const chairs = await getChairsFromBlueprint(job.workspace_id);
   const match = findAgent(chairs, job.agent_id);
 
   updateJob(job.workspace_id, job.job_id, {
@@ -148,17 +148,11 @@ async function executeJob(job: AgentJob): Promise<void> {
     } catch (err) {
       if (err instanceof NoProviderConfiguredError) {
         // Template output — provider not configured, produce a structured stub
-        output = [
-          `## ${agentName} — Task Response`,
-          "",
-          `**Task:** ${job.task.description}`,
-          "",
-          "**Status:** No inference provider configured. Configure one in Settings to enable AI task execution.",
-          "",
-          "**What would be produced:** This agent would apply its specialist expertise to complete the task and return actionable output.",
-          "",
-          `_Specialist: ${laborCommonsRef ?? "unassigned"}_`,
-        ].join("\n");
+        output =
+          `${agentName} couldn't run this task because no inference provider is configured — ` +
+          `configure one in Settings to enable AI task execution. ` +
+          `When configured, this agent would apply its specialist expertise to complete "${job.task.description}" and return actionable output. ` +
+          `_Specialist: ${laborCommonsRef ?? "unassigned"}_`;
       } else {
         throw err;
       }
@@ -187,7 +181,7 @@ export function registerWorkspace(workspaceId: string): void {
 
 async function tick(): Promise<void> {
   for (const workspaceId of activeWorkspaces) {
-    const { maxParallel } = getProviderConcurrency(workspaceId);
+    const { maxParallel } = await getProviderConcurrency(workspaceId);
     if (running.size >= maxParallel) return;
 
     const pendingIds = getPendingJobIds(workspaceId);

@@ -6,43 +6,13 @@
  * PUT preserves an existing api_key when the incoming value is blank.
  */
 import { Router, type Request, type Response } from "express";
-import type { ProviderConfig, Role, WorkspaceSettings } from "@commons-board/shared";
+import type { ProviderConfig, WorkspaceSettings } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { isProviderKindRegistered } from "../lib/provider/index.js";
-import { readJson, writeJsonAtomic } from "../lib/persistence.js";
+import { asyncHandler } from "../lib/async-handler.js";
+import { loadSettings, saveSettings } from "../lib/settings-store.js";
 
 export const settingsRouter = Router();
-
-function key(workspaceId: string): string {
-  return `settings/${workspaceId}`;
-}
-
-function defaults(workspaceId: string): WorkspaceSettings {
-  const grants: Record<Role, string[]> = {
-    admin: ["*"],
-    operator: ["approve", "trigger_cadence", "manage_settings"],
-    member: ["vote", "view"],
-    observer: ["view"]
-  };
-  return {
-    workspace_id: workspaceId,
-    active_provider_id: "",
-    providers: [],
-    rbac: { grants },
-    feature_toggles: {},
-    updated_at: new Date().toISOString()
-  };
-}
-
-function load(workspaceId: string): WorkspaceSettings {
-  return readJson<WorkspaceSettings>(key(workspaceId), defaults(workspaceId));
-}
-
-function save(settings: WorkspaceSettings): WorkspaceSettings {
-  const next = { ...settings, updated_at: new Date().toISOString() };
-  writeJsonAtomic(key(settings.workspace_id), next);
-  return next;
-}
 
 function workspaceOf(req: Request): string {
   return req.ctx?.workspaceId ?? req.header("x-workspace-id") ?? "default";
@@ -72,20 +42,55 @@ function mergeProviders(incoming: ProviderConfig[], existing: ProviderConfig[]):
 
 settingsRouter.use(requireContext);
 
-settingsRouter.get("/", (req: Request, res: Response) => {
-  const settings = load(workspaceOf(req));
+settingsRouter.get("/", asyncHandler(async (req: Request, res: Response) => {
+  const settings = await loadSettings(workspaceOf(req));
   res.status(200).json({
     ...settings,
     providers: maskProviders(settings.providers)
   });
-});
+}));
 
-settingsRouter.put("/", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+settingsRouter.put("/", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const body = req.body as Partial<WorkspaceSettings>;
-  const current = load(workspaceOf(req));
+  const current = await loadSettings(workspaceOf(req));
 
   const incomingProviders = body.providers ?? current.providers;
   const mergedProviders = mergeProviders(incomingProviders, current.providers);
+
+  // Validate inference_queue overrides before merging. Kept inline and loose-typed
+  // (unknown -> Record<string, unknown>) because req.body is an untrusted cast; the
+  // runtime checks are what actually guard shape here. Mirrors the 400-return style
+  // of the active_provider_id check below.
+  if (body.inference_queue !== undefined) {
+    const iq: unknown = body.inference_queue;
+    if (typeof iq !== "object" || iq === null || Array.isArray(iq)) {
+      res.status(400).json({ error: "inference_queue must be an object" });
+      return;
+    }
+    const iqObj = iq as Record<string, unknown>;
+    if (iqObj.call_type_overrides !== undefined) {
+      if (
+        typeof iqObj.call_type_overrides !== "object" ||
+        iqObj.call_type_overrides === null ||
+        Array.isArray(iqObj.call_type_overrides)
+      ) {
+        res.status(400).json({ error: "inference_queue.call_type_overrides must be an object" });
+        return;
+      }
+    }
+    if (iqObj.max_queue_depth !== undefined) {
+      if (!Number.isInteger(iqObj.max_queue_depth) || (iqObj.max_queue_depth as number) <= 0) {
+        res.status(400).json({ error: "inference_queue.max_queue_depth must be a positive integer" });
+        return;
+      }
+    }
+    if (iqObj.enable_telemetry !== undefined) {
+      if (typeof iqObj.enable_telemetry !== "boolean") {
+        res.status(400).json({ error: "inference_queue.enable_telemetry must be a boolean" });
+        return;
+      }
+    }
+  }
 
   const merged: WorkspaceSettings = {
     ...current,
@@ -97,6 +102,7 @@ settingsRouter.put("/", requireRole(["admin", "operator"]), (req: Request, res: 
     feature_toggles: body.feature_toggles ?? current.feature_toggles,
     board_settings: body.board_settings ?? current.board_settings,
     addin_catalog_url: body.addin_catalog_url !== undefined ? (body.addin_catalog_url || undefined) : current.addin_catalog_url,
+    inference_queue: body.inference_queue ?? current.inference_queue,
     workspace_id: current.workspace_id
   };
 
@@ -112,9 +118,9 @@ settingsRouter.put("/", requireRole(["admin", "operator"]), (req: Request, res: 
     }
   }
 
-  const saved = save(merged);
+  const saved = await saveSettings(merged);
   res.status(200).json({
     ...saved,
     providers: maskProviders(saved.providers)
   });
-});
+}));

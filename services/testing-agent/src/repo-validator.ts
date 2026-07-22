@@ -13,7 +13,16 @@ export async function runRepoValidation(): Promise<ValidationCheck[]> {
 
   const checks = [
     () => runCommandCheck({ name: "baseline:typecheck", cmd: "npm", args: ["run", "typecheck"], cwd }),
-    () => runCommandCheck({ name: "baseline:test", cmd: "npm", args: ["run", "test"], cwd, retries: 2 }),
+    // Run only the API workspace tests — the full `npm test` includes Playwright
+    // e2e which requires a running web server and browser, unsuitable for CI.
+    () =>
+      runCommandCheck({
+        name: "baseline:test",
+        cmd: "npm",
+        args: ["run", "test", "--workspace", "@commons-board/api"],
+        cwd,
+        retries: 2
+      }),
     () =>
       runCommandCheck({
         name: "baseline:migrations_present",
@@ -27,7 +36,7 @@ export async function runRepoValidation(): Promise<ValidationCheck[]> {
         cmd: "sh",
         args: [
           "-c",
-          "grep -q 'cb-api:' docker-compose.yml && grep -q 'cb-web:' docker-compose.yml && grep -q 'cb-db:' docker-compose.yml"
+          "grep -q '^  api:' docker-compose.yml && grep -q '^  web:' docker-compose.yml && grep -q '^  db:' docker-compose.yml"
         ],
         cwd
       })

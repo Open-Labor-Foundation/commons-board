@@ -9,3 +9,15 @@ export { stripeCreateProduct, stripeCreatePrice, stripeCreateCheckoutSession } f
 
 export type { EmailSendResult } from "./email.js";
 export { emailSend } from "./email.js";
+
+export type { SlackMessageResult, SlackAttachment, SlackChannelInfo } from "./slack.js";
+export { slackPostMessage, slackListChannels } from "./slack.js";
+
+export type { JiraIssueResult, JiraIssueType, JiraTransition } from "./jira.js";
+export { jiraCreateIssue, jiraGetTransitions, jiraTransitionIssue } from "./jira.js";
+
+export type { CalendarEventResult, CalendarAttendee } from "./calendar.js";
+export { calendarCreateEvent } from "./calendar.js";
+
+export type { VaultSecret } from "./vault.js";
+export { getSecret, getSecrets, getVaultBackend } from "./vault.js";

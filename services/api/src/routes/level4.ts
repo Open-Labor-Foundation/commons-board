@@ -39,9 +39,11 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import type { ArtifactType, GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { writeArtifact, getArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
+import { tryRegisterIdempotency } from "../lib/idempotency-store.js";
 import { externalWriteAllowed } from "../lib/container-policy.js";
 import { canTransitionLoopStage, type LoopStage } from "../lib/operational-loop.js";
 import { resolveModelNativeOutreachReply } from "../services/model-native-level4.js";
@@ -277,12 +279,9 @@ function approveLevel4Action(workspaceId: string, actionId: string, approvedBy: 
   return updated;
 }
 
-function registerIdempotency(workspaceId: string, scope: string, key: string): boolean {
-  const records = readJson<IdempotencyRecord[]>(idempotencyKey(workspaceId), []);
-  if (records.some((r) => r.scope === scope && r.key === key)) return false;
-  records.push({ key, scope, registeredAt: new Date().toISOString() });
-  writeJsonAtomic(idempotencyKey(workspaceId), records);
-  return true;
+async function registerIdempotency(workspaceId: string, scope: string, key: string): Promise<boolean> {
+  const { accepted } = await tryRegisterIdempotency({ workspaceId, scope, key });
+  return accepted;
 }
 
 function createDeadLetter(workspaceId: string, input: {
@@ -486,7 +485,12 @@ import {
   stripeCreateProduct,
   stripeCreatePrice,
   stripeCreateCheckoutSession,
-  emailSend
+  emailSend,
+  slackPostMessage,
+  jiraCreateIssue,
+  jiraTransitionIssue,
+  calendarCreateEvent,
+  getSecret
 } from "@commons-board/connectors";
 
 const _connectorMode = process.env.CB_CONNECTOR_MODE === "live"
@@ -566,6 +570,71 @@ async function connectorEmailSend(
     return;
   }
   // stub: no-op in test/mock mode
+}
+
+async function connectorSlackNotify(
+  _workspaceId: string,
+  opts: { channel?: string; text: string; blocks?: unknown[] }
+): Promise<{ ok: boolean; channel: string; ts: string; mode: string }> {
+  if (_connectorMode === "live") {
+    const result = await slackPostMessage({ channel: opts.channel, text: opts.text, blocks: opts.blocks });
+    return { ok: result.ok, channel: result.channel, ts: result.ts, mode: "live" };
+  }
+  return { ok: true, channel: opts.channel ?? "#general", ts: String(Date.now()), mode: _connectorMode };
+}
+
+async function connectorJiraCreateIssue(
+  _workspaceId: string,
+  opts: { projectKey?: string; summary: string; description?: string; issueType?: string; labels?: string[] }
+): Promise<{ id: string; key: string; url: string; mode: string }> {
+  if (_connectorMode === "live") {
+    const result = await jiraCreateIssue(opts);
+    return { id: result.id, key: result.key, url: result.url, mode: "live" };
+  }
+  return { id: `jira-${randomUUID().slice(0, 8)}`, key: `${opts.projectKey ?? "PROJ"}-${Math.floor(Math.random() * 999)}`, url: `https://example.atlassian.net/browse/PROJ-1`, mode: _connectorMode };
+}
+
+async function connectorJiraTransition(
+  _workspaceId: string,
+  _issueKey: string,
+  _transitionId: string
+): Promise<{ ok: boolean; mode: string }> {
+  if (_connectorMode === "live") {
+    await jiraTransitionIssue(_issueKey, _transitionId);
+    return { ok: true, mode: "live" };
+  }
+  return { ok: true, mode: _connectorMode };
+}
+
+async function connectorCalendarCreateEvent(
+  _workspaceId: string,
+  opts: { summary: string; description?: string; start: string; end: string; attendees?: Array<{ email: string; displayName?: string }> }
+): Promise<{ id: string; htmlLink: string; mode: string }> {
+  if (_connectorMode === "live") {
+    const result = await calendarCreateEvent({
+      summary: opts.summary,
+      description: opts.description,
+      start: opts.start,
+      end: opts.end,
+      attendees: opts.attendees
+    });
+    return { id: result.id, htmlLink: result.htmlLink, mode: "live" };
+  }
+  return { id: `cal-${randomUUID().slice(0, 8)}`, htmlLink: `https://calendar.google.com/event?id=stub`, mode: _connectorMode };
+}
+
+async function connectorVaultGetSecret(
+  _workspaceId: string,
+  path: string,
+  key: string
+): Promise<{ value: string; backend: string; mode: string }> {
+  if (_connectorMode === "live") {
+    const result = await getSecret(path, key);
+    return { value: result.value, backend: result.backend, mode: "live" };
+  }
+  // In test/mock mode, fall through to env
+  const value = process.env[key] ?? `mock-secret-${key}`;
+  return { value, backend: "env", mode: _connectorMode };
 }
 
 // ---------------------------------------------------------------------------
@@ -663,7 +732,7 @@ function actionAdapter(actionType: string): "email" | "publish" | "deploy" | nul
 // ---------------------------------------------------------------------------
 
 /** POST /api/v1/level4/launch-from-prompt */
-level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const { prompt, constraints } = req.body as { prompt?: string; constraints?: Record<string, unknown> };
 
@@ -683,7 +752,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
     }));
 
   try {
-    const ventureProfileRecord = writeArtifact(
+    const ventureProfileRecord = await writeArtifact(
       workspaceId,
       "venture_profile" as ArtifactType,
       {
@@ -696,7 +765,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
       userId
     );
 
-    const launchPlanRecord = writeArtifact(
+    const launchPlanRecord = await writeArtifact(
       workspaceId,
       "launch_plan" as ArtifactType,
       {
@@ -712,7 +781,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
       userId
     );
 
-    const toolingPlanRecord = writeArtifact(
+    const toolingPlanRecord = await writeArtifact(
       workspaceId,
       "tooling_plan" as ArtifactType,
       {
@@ -729,7 +798,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
       userId
     );
 
-    const financialPolicyRecord = writeArtifact(
+    const financialPolicyRecord = await writeArtifact(
       workspaceId,
       "financial_policy" as ArtifactType,
       {
@@ -751,10 +820,10 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
     );
 
     // Agent blueprint only if none exists — interview flow owns it when present
-    const existingBlueprint = getArtifact(workspaceId, "agent_blueprint");
+    const existingBlueprint = await getArtifact(workspaceId, "agent_blueprint");
     let blueprintRecord: { artifact_id: string; type: string; version: number } | null = null;
     if (!existingBlueprint) {
-      blueprintRecord = writeArtifact(
+      blueprintRecord = await writeArtifact(
         workspaceId,
         "agent_blueprint",
         {
@@ -862,7 +931,8 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
     ];
 
     const now = new Date().toISOString();
-    const actions = actionDefs.map((def) => {
+    const actions: Level4Action[] = [];
+    for (const def of actionDefs) {
       const action = createLevel4Action({
         workspaceId,
         type: def.type,
@@ -882,7 +952,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
         category: action.type
       });
 
-      appendEvent({
+      await appendEvent({
         event_id: randomUUID(),
         org_id: workspaceId,
         event_type: "action_proposed",
@@ -899,8 +969,8 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
         at: now
       } satisfies GovernanceEvent);
 
-      return action;
-    });
+      actions.push(action);
+    }
 
     res.status(201).json({
       artifacts: {
@@ -921,7 +991,7 @@ level4Router.post("/launch-from-prompt", requireRole(["admin", "operator"]), (re
     const detail = error instanceof Error ? error.message : "unknown error";
     res.status(500).json({ error: "launch-from-prompt failed", detail });
   }
-});
+}));
 
 /** GET /api/v1/level4/actions */
 level4Router.get("/actions", (req: Request, res: Response) => {
@@ -937,7 +1007,7 @@ level4Router.post("/actions/:actionId/approve-execute", requireRole(["admin"]), 
   // Idempotency
   const idempotencyHeader = req.header("x-idempotency-key");
   if (idempotencyHeader) {
-    const accepted = registerIdempotency(workspaceId, "level4.approve-execute", idempotencyHeader);
+    const accepted = await registerIdempotency(workspaceId, "level4.approve-execute", idempotencyHeader);
     if (!accepted) {
       res.status(409).json({ error: "duplicate request", scope: "level4.approve-execute" });
       return;
@@ -1227,7 +1297,7 @@ level4Router.post("/outreach/campaigns/:campaignId/send", requireRole(["admin", 
   // Idempotency
   const idempotencyHeader = req.header("x-idempotency-key");
   if (idempotencyHeader) {
-    if (!registerIdempotency(workspaceId, "outreach.send", idempotencyHeader)) {
+    if (!(await registerIdempotency(workspaceId, "outreach.send", idempotencyHeader))) {
       res.status(409).json({ error: "duplicate request", scope: "outreach.send" });
       return;
     }

@@ -73,8 +73,8 @@ type Brief = {
 // ── AI brief generation ───────────────────────────────────────────────────────
 
 async function generateAIBrief(workspaceId: string): Promise<Brief> {
-  const bp = getArtifact(workspaceId, "business_profile");
-  const ab = getArtifact(workspaceId, "agent_blueprint");
+  const bp = await getArtifact(workspaceId, "business_profile");
+  const ab = await getArtifact(workspaceId, "agent_blueprint");
 
   const businessContext = bp
     ? JSON.stringify(bp.payload, null, 2).slice(0, 1500)
@@ -148,14 +148,14 @@ async function generateAIBrief(workspaceId: string): Promise<Brief> {
     };
   } catch (err) {
     if (err instanceof NoProviderConfiguredError) {
-      return buildFallbackBrief(workspaceId, now);
+      return await buildFallbackBrief(workspaceId, now);
     }
     throw err;
   }
 }
 
-function buildFallbackBrief(workspaceId: string, now: string): Brief {
-  const ab = getArtifact(workspaceId, "agent_blueprint");
+async function buildFallbackBrief(workspaceId: string, now: string): Promise<Brief> {
+  const ab = await getArtifact(workspaceId, "agent_blueprint");
   const chairs = ab
     ? ((ab.payload as { chairs?: Array<{ name: string; domain: string }> }).chairs ?? [])
     : [];
@@ -201,11 +201,11 @@ export async function runCadence(workspaceId: string, actor: string, correlation
   let brief: Brief;
 
   try {
-    const bp = getArtifact(workspaceId, "business_profile");
-    const oc = getArtifact(workspaceId, "objective_config");
-    const ap = getArtifact(workspaceId, "autonomy_policy");
-    const cp = getArtifact(workspaceId, "cadence_protocol");
-    const ab = getArtifact(workspaceId, "agent_blueprint");
+    const bp = await getArtifact(workspaceId, "business_profile");
+    const oc = await getArtifact(workspaceId, "objective_config");
+    const ap = await getArtifact(workspaceId, "autonomy_policy");
+    const cp = await getArtifact(workspaceId, "cadence_protocol");
+    const ab = await getArtifact(workspaceId, "agent_blueprint");
 
     const hasFullArtifacts = bp && oc && ap && cp && ab;
 
@@ -286,7 +286,7 @@ export async function runCadence(workspaceId: string, actor: string, correlation
     writeJsonAtomic(boardRequestsKey(workspaceId), [...boardRequests, ...newRequests]);
   }
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: workspaceId,
     event_type: "action_executed",

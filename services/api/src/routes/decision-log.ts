@@ -8,18 +8,19 @@
 import { Router, type Request, type Response } from "express";
 import { requireContext } from "../lib/auth.js";
 import { getLog, verifyLog } from "../lib/decision-log.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const decisionLogRouter = Router();
 decisionLogRouter.use(requireContext);
 
 /** GET /api/v1/decision-log */
-decisionLogRouter.get("/", (req: Request, res: Response) => {
+decisionLogRouter.get("/", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "50"), 10)));
   const eventType = req.query.event_type as string | undefined;
 
-  let entries = getLog(orgId);
+  let entries = await getLog(orgId);
   if (eventType) entries = entries.filter((e) => e.event.event_type === eventType);
 
   const total = entries.length;
@@ -36,11 +37,11 @@ decisionLogRouter.get("/", (req: Request, res: Response) => {
       pages: Math.ceil(total / limit)
     }
   });
-});
+}));
 
 /** GET /api/v1/decision-log/verify */
-decisionLogRouter.get("/verify", (req: Request, res: Response) => {
+decisionLogRouter.get("/verify", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
-  const result = verifyLog(orgId);
+  const result = await verifyLog(orgId);
   res.status(200).json(result);
-});
+}));

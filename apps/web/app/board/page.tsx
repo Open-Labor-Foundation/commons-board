@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, apiPost, apiPatch, relativeTime, humanize } from "../../lib/api";
 
+type Deliverable = {
+  id: string;
+  name: string;
+  type: string;
+  created_at: string;
+  download_url: string | null;
+};
+
 type CommonsCrewDispatchState =
   | { status: "awaiting_decision"; approval_id: string; proposal_id: string; run_id: string; proposed_at: string }
   | { status: "approved"; child_run_id: string; layer: string; decided_at: string; decided_by: string }
@@ -50,6 +58,8 @@ export default function BoardPage() {
   const [simulating, setSimulating] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
+  const [deliverables, setDeliverables] = useState<Record<string, Deliverable[]>>({});
+  const [loadingDeliverables, setLoadingDeliverables] = useState<string | null>(null);
 
   const DOMAINS = ["ops", "it", "security", "hr", "rnd", "finance", "growth", "sales", "legal", "product", "strategy"];
 
@@ -92,6 +102,13 @@ export default function BoardPage() {
     await apiPatch(`/api/v1/board/requests/${id}`, { auto_dispatch_to_commons_crew: value });
     setActing(null);
     load();
+  }
+
+  async function loadDeliverables(id: string) {
+    setLoadingDeliverables(id);
+    const data = await apiFetch<{ deliverables: Deliverable[] }>(`/api/v1/board/requests/${id}/deliverables`);
+    setDeliverables(prev => ({ ...prev, [id]: data?.deliverables ?? [] }));
+    setLoadingDeliverables(null);
   }
 
   async function runSimulation() {
@@ -159,6 +176,47 @@ export default function BoardPage() {
               </div>
               {expandedId === r.id && (
                 <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {r.commons_crew_dispatch?.status === "approved" && !deliverables[r.id] && !loadingDeliverables && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); loadDeliverables(r.id); }}
+                        style={{ background: "none", color: "var(--brand)", padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: "var(--radius)", border: "1px solid var(--brand)", cursor: "pointer" }}
+                      >
+                        Load deliverables
+                      </button>
+                    </div>
+                  )}
+                  {loadingDeliverables === r.id && (
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Loading deliverables…</p>
+                  )}
+                  {deliverables[r.id] && deliverables[r.id].length > 0 && (
+                    <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Deliverables from commons-crew</span>
+                      {deliverables[r.id].map((d) => (
+                        <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--surface-overlay)", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{d.name}</p>
+                            <div style={{ display: "flex", gap: 8, fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>
+                              <span>{d.type}</span>
+                              <span>{relativeTime(d.created_at)}</span>
+                            </div>
+                          </div>
+                          {d.download_url && (
+                            <a
+                              href={d.download_url}
+                              download
+                              style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)", textDecoration: "none", padding: "4px 12px", border: "1px solid var(--brand)", borderRadius: "var(--radius)" }}
+                            >
+                              Download
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {deliverables[r.id] && deliverables[r.id].length === 0 && (
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No deliverables published yet. The chair's commons-crew run will publish artifacts as it completes work.</p>
+                  )}
                   <div style={{ background: "var(--surface-overlay)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "14px", fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)" }}>
                     {r.request}
                   </div>
@@ -166,7 +224,7 @@ export default function BoardPage() {
                     <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-secondary)", cursor: acting !== null ? "default" : "pointer" }}>
                       <input
                         type="checkbox"
-                        checked={r.auto_dispatch_to_commons_crew ?? false}
+                        checked={r.auto_dispatch_to_commons_crew ?? true}
                         disabled={acting !== null}
                         onChange={e => setAutoDispatch(r.id, e.target.checked)}
                       />

@@ -10,6 +10,7 @@
 import { Router, type Request, type Response } from "express";
 import { getArtifact } from "../lib/artifact-store.js";
 import { requireContext, requireRole } from "../lib/auth.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 
 export const workspaceRouter = Router();
@@ -70,12 +71,12 @@ workspaceRouter.patch("/settings", requireRole(["admin", "operator"]), (req: Req
   res.status(200).json(save(next));
 });
 
-workspaceRouter.get("/today", (req: Request, res: Response) => {
+workspaceRouter.get("/today", asyncHandler(async (req: Request, res: Response) => {
   const orgId = req.ctx!.workspaceId;
   const ops = load(orgId);
 
-  const profileRecord = getArtifact(orgId, "business_profile");
-  const policyRecord = getArtifact(orgId, "autonomy_policy");
+  const profileRecord = await getArtifact(orgId, "business_profile");
+  const policyRecord = await getArtifact(orgId, "autonomy_policy");
 
   const profile = profileRecord?.payload as Record<string, unknown> | null ?? null;
   const policy = policyRecord?.payload as Record<string, unknown> | null ?? null;
@@ -92,14 +93,14 @@ workspaceRouter.get("/today", (req: Request, res: Response) => {
     },
     artifacts_ready: {
       business_profile: profileRecord !== null,
-      objective_config: getArtifact(orgId, "objective_config") !== null,
+      objective_config: (await getArtifact(orgId, "objective_config")) !== null,
       autonomy_policy: policyRecord !== null,
-      cadence_protocol: getArtifact(orgId, "cadence_protocol") !== null,
-      agent_blueprint: getArtifact(orgId, "agent_blueprint") !== null,
-      collective_config: getArtifact(orgId, "collective_config") !== null
+      cadence_protocol: (await getArtifact(orgId, "cadence_protocol")) !== null,
+      agent_blueprint: (await getArtifact(orgId, "agent_blueprint")) !== null,
+      collective_config: (await getArtifact(orgId, "collective_config")) !== null
     }
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Kill-switch routes

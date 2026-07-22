@@ -9,14 +9,8 @@
  * credentials are stored here; the provider adapter resolves them from env vars.
  */
 import type { InferenceRequest, InferenceResponse } from "@commons-board/shared";
-import type { WorkspaceSettings } from "@commons-board/shared";
 import { createProvider } from "./provider/index.js";
-import { readJson } from "./persistence.js";
-
-function loadSettings(workspaceId: string): WorkspaceSettings | null {
-  const settings = readJson<WorkspaceSettings | null>(`settings/${workspaceId}`, null);
-  return settings;
-}
+import { loadSettings } from "./settings-store.js";
 
 export class NoProviderConfiguredError extends Error {
   constructor(workspaceId: string) {
@@ -97,9 +91,9 @@ export async function complete(
   workspaceId: string,
   req: Omit<InferenceRequest, "correlation_id"> & { correlation_id?: string }
 ): Promise<InferenceResponse> {
-  const settings = loadSettings(workspaceId);
+  const settings = await loadSettings(workspaceId);
 
-  if (!settings || !settings.active_provider_id || settings.providers.length === 0) {
+  if (!settings.active_provider_id || settings.providers.length === 0) {
     throw new NoProviderConfiguredError(workspaceId);
   }
 
@@ -149,13 +143,13 @@ function isRateLimitError(error: string | undefined): boolean {
  * maxParallel = floor(lanes / cost) — the number of calls that can run simultaneously
  * without exceeding the API key's lane allotment.
  */
-export function getProviderConcurrency(workspaceId: string): {
+export async function getProviderConcurrency(workspaceId: string): Promise<{
   lanes: number;
   cost: number;
   maxParallel: number;
-} {
-  const settings = loadSettings(workspaceId);
-  const config = settings?.providers.find((p) => p.provider_id === settings?.active_provider_id);
+}> {
+  const settings = await loadSettings(workspaceId);
+  const config = settings.providers.find((p) => p.provider_id === settings.active_provider_id);
   const lanes = config?.concurrency_lanes ?? 1;
   const cost = Math.max(1, config?.concurrency_cost ?? 1);
   return { lanes, cost, maxParallel: Math.max(1, Math.floor(lanes / cost)) };

@@ -13,11 +13,12 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { requireContext } from "../lib/auth.js";
 import { appendEvent, getLog } from "../lib/decision-log.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const feedbackRouter = Router();
 feedbackRouter.use(requireContext);
 
-feedbackRouter.post("/", (req: Request, res: Response) => {
+feedbackRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const { targetType, targetId, helpful, reason, note } = req.body as {
     targetType?: "brief" | "action";
@@ -32,7 +33,7 @@ feedbackRouter.post("/", (req: Request, res: Response) => {
     return;
   }
 
-  const entry = appendEvent({
+  const entry = await appendEvent({
     event_id: randomUUID(),
     org_id: workspaceId,
     event_type: "user_feedback" as never,
@@ -44,11 +45,11 @@ feedbackRouter.post("/", (req: Request, res: Response) => {
   });
 
   res.status(201).json({ entry_id: entry.entry_id, recorded: true });
-});
+}));
 
-feedbackRouter.get("/summary", (req: Request, res: Response) => {
+feedbackRouter.get("/summary", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
-  const log = getLog(workspaceId);
+  const log = await getLog(workspaceId);
   const feedbackEntries = log.filter((e) => (e.event.event_type as string) === "user_feedback");
   const helpful = feedbackEntries.filter((e) => e.event.details.helpful === true).length;
   const notHelpful = feedbackEntries.filter((e) => e.event.details.helpful === false).length;
@@ -58,4 +59,4 @@ feedbackRouter.get("/summary", (req: Request, res: Response) => {
     total: feedbackEntries.length,
     reasons: feedbackEntries.map((e) => e.event.details.reason ?? "unspecified")
   });
-});
+}));

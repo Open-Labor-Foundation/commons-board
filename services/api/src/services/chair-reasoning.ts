@@ -12,7 +12,8 @@
  */
 import { getDomainCapabilities } from "../lib/board-orchestration.js";
 import { getSpecialist } from "../lib/labor-commons-client.js";
-import { completeTextWithThinking, NoProviderConfiguredError } from "../lib/model-client.js";
+import { NoProviderConfiguredError, parseThinking } from "../lib/model-client.js";
+import { enqueueInference, type InferenceCallType } from "../lib/inference-queue.js";
 import type { BoardDomain, BoardRequestRecord, BoardRoadmapRecord } from "@commons-board/shared";
 
 type ReasoningInput = {
@@ -22,6 +23,8 @@ type ReasoningInput = {
   laborCommonsSlug?: string;
   /** Per-chair model override — passed directly to the inference call. */
   model?: string;
+  /** Queue call type — defaults to "chair_deliberation". */
+  callType?: InferenceCallType;
 };
 
 type ReasoningMeta = {
@@ -193,8 +196,9 @@ export async function buildReasonedBoardResponse(input: ReasoningInput): Promise
       ...(specialistContext.length > 0 ? ["", "Specialist scope guidance:", ...specialistContext.map((s) => `- ${s}`)] : []),
       ...(citations.length > 0 ? ["", "Authority sources:", ...citations.map((c) => `- ${c}`)] : []),
       "",
-      "Be direct and specific. Structure your response clearly. Recommend concrete next steps with explicit sequencing.",
-      "Identify the key decision, risk, or opportunity. Do not hedge excessively."
+      "Be direct and specific. Respond in natural prose unless the human explicitly asked for a memo, checklist, or formal structure.",
+      "Cover the key decision, risk, or opportunity — don't hedge excessively, but don't force a fixed section layout on every response.",
+      "Vary your structure based on what the situation actually calls for."
     ].join("\n");
 
     const userParts = [input.request.request];
@@ -208,43 +212,28 @@ export async function buildReasonedBoardResponse(input: ReasoningInput): Promise
       userParts.push("", `Financial signals in context: ${moneySignals.join(", ")}`);
     }
 
-    ({ answer: responseText, thinking: responseThinking } = await completeTextWithThinking(
-      input.workspaceId,
-      systemPrompt,
-      userParts.join("\n"),
-      { temperature: 0.3, correlation_id: input.request.id, model: input.model }
-    ));
+    const result = await enqueueInference({
+      callType: input.callType ?? "chair_deliberation",
+      workspaceId: input.workspaceId,
+      prompt: userParts.join("\n"),
+      systemPrompt: systemPrompt,
+      model: input.model,
+      temperature: 0.7,
+      metadata: { chairId: input.request.target_chair_id, requestId: input.request.id },
+    });
+    const parsed = parseThinking(result.text);
+    responseText = parsed.answer;
+    responseThinking = parsed.thinking;
   } catch (err) {
     if (err instanceof NoProviderConfiguredError) {
       // Template fallback — provider not configured yet.
-      responseText = [
-        `${input.request.target_domain.toUpperCase()} recommendation for "${compact(input.request.title)}"`,
-        "",
-        summarizeScope(input.request),
-        "",
-        "Reasoning:",
-        ...domainLens.map((item) => `- ${item}`),
-        ...(specialistContext.length > 0 ? ["", "Specialist scope notes:", ...specialistContext.map((s) => `- ${s}`)] : []),
-        "",
-        "Recommended next actions (sequenced):",
-        "- Stage 1: lock scope, constraints, and governance obligations in writing.",
-        "- Stage 2: define measurable success criteria with explicit acceptance gates.",
-        "- Stage 3: run initial tranche with weekly governance checkpoint and risk log.",
-        "- Stage 4: confirm outcomes against success criteria before scaling.",
-        "",
-        "Risk controls:",
-        "- Do not start execution without signed scope and payment/resource schedule.",
-        "- Treat legal and compliance checks as release gates, not post-hoc cleanup.",
-        "- Use immutable audit receipts for major recommendations and approvals.",
-        "",
-        "Evidence signals:",
-        ...evidence.map((item) => `- ${item}`),
-        ...(citations.length > 0 ? ["", "Authority sources:", ...citations.map((c) => `- ${c}`)] : []),
-        "",
-        `Confidence: ${(confidence * 100).toFixed(0)}%`,
-        "",
-        "_No inference provider configured — configure one in Settings to enable AI responses._"
-      ].join("\n");
+      const domain = input.request.target_domain.toUpperCase();
+      const title = compact(input.request.title);
+      responseText =
+        `${domain} take on "${title}": ${domainLens[0] ?? "No specific lens available."} ` +
+        `The gating concern here is ${domainLens[1] ?? "ensuring scope is locked before execution"}. ` +
+        (specialistContext.length > 0 ? `${specialistContext.join(" ")} ` : "") +
+        `_No inference provider configured — configure one in Settings to enable full AI responses._`;
     } else {
       throw err;
     }
@@ -262,4 +251,55 @@ export async function buildReasonedBoardResponse(input: ReasoningInput): Promise
       citations: citations.length > 0 ? citations : ["labor-commons catalog (no specialist spec loaded)"]
     }
   };
+}
+
+/**
+ * Summarize a full chair response to ~200 words before task extraction.
+ *
+ * Chair deliberation responses can be 1000+ words. Sending all of them as a
+ * single extraction prompt caused timeouts on featherless because the combined
+ * prompt was too large for one inference call to complete within the
+ * provider's window. Summarizing each response first reduces the extraction
+ * prompt from ~6000+ words to ~1500 words.
+ *
+ * Routes through `enqueueInference()` with `callType: "chair_summarize"`
+ * (priority 2, maxConcurrent 3 — short calls that can run in parallel).
+ *
+ * Non-blocking: on ANY error (NoProviderConfiguredError, QueueFullError,
+ * timeout, network error, etc.) returns the original text unchanged. A long
+ * extraction prompt is better than no extraction prompt — the extractor's own
+ * fallback handles the degraded case.
+ *
+ * @param chairResponse  Full chair response text (may be 1000+ words).
+ * @param workspaceId    Workspace ID — required by the inference queue to
+ *                       load workspace settings and resolve the active provider.
+ * @param chairId        Optional chair ID, included in call metadata for
+ *                       observability.
+ * @returns The summarized text (~200 words), or the original text on any error.
+ */
+export async function summarizeChairResponse(
+  chairResponse: string,
+  workspaceId: string,
+  chairId?: string
+): Promise<string> {
+  try {
+    const result = await enqueueInference({
+      callType: "chair_summarize",
+      workspaceId,
+      prompt: chairResponse,
+      systemPrompt:
+        "Summarize the following board chair response to approximately 200 words. " +
+        "Preserve key decisions, action items, and recommendations. Do not add commentary.",
+      temperature: 0.3,
+      metadata: chairId ? { chairId } : undefined,
+    });
+    // Strip any chain-of-thought blocks emitted by thinking models so the
+    // summary is clean prose for the downstream extraction prompt.
+    const parsed = parseThinking(result.text);
+    return parsed.answer;
+  } catch {
+    // Non-blocking: better to have a long prompt than no prompt.
+    // Returns the original text unchanged on any error.
+    return chairResponse;
+  }
 }

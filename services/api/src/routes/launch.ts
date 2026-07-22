@@ -20,6 +20,7 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import type { GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { writeArtifact, getArtifact, ArtifactValidationError } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { LaunchInterviewStateMachine } from "../agent-runtime/launch/state-machine.js";
@@ -101,7 +102,7 @@ launchRouter.get("/sessions/:sessionId/assumptions", (req: Request, res: Respons
 });
 
 /** POST /api/v1/launch/sessions/:sessionId/finalize */
-launchRouter.post("/sessions/:sessionId/finalize", requireRole(["admin", "operator"]), (req: Request, res: Response) => {
+launchRouter.post("/sessions/:sessionId/finalize", requireRole(["admin", "operator"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const { sessionId } = req.params;
   const machine = getSession(sessionId, workspaceId);
@@ -122,12 +123,12 @@ launchRouter.post("/sessions/:sessionId/finalize", requireRole(["admin", "operat
         throw new Error(`unsupported launch artifact type: ${key}`);
       }
       // Safe: we just checked the set above
-      const record = writeArtifact(workspaceId, key as Parameters<typeof writeArtifact>[1], payload, userId);
+      const record = await writeArtifact(workspaceId, key as Parameters<typeof writeArtifact>[1], payload, userId);
       createdArtifacts.push({ artifact_type: record.type, version: record.version, artifact_id: record.artifact_id });
     }
 
     // Write the agent_blueprint — OLF chair schema
-    const existingBlueprint = getArtifact(workspaceId, "agent_blueprint");
+    const existingBlueprint = await getArtifact(workspaceId, "agent_blueprint");
     if (!existingBlueprint) {
       const launchBlueprint = {
         org_id: workspaceId,
@@ -185,7 +186,7 @@ launchRouter.post("/sessions/:sessionId/finalize", requireRole(["admin", "operat
         ],
         schema_version: "1.0"
       };
-      const bpRecord = writeArtifact(workspaceId, "agent_blueprint", launchBlueprint, userId);
+      const bpRecord = await writeArtifact(workspaceId, "agent_blueprint", launchBlueprint, userId);
       createdArtifacts.push({ artifact_type: bpRecord.type, version: bpRecord.version, artifact_id: bpRecord.artifact_id });
     }
 
@@ -193,9 +194,9 @@ launchRouter.post("/sessions/:sessionId/finalize", requireRole(["admin", "operat
     const executionArtifacts = mapLaunchToExecutionArtifacts(workspaceId, result.artifacts, machine.getState().answers);
     const EXECUTION_ARTIFACT_TYPES = ["business_profile", "objective_config", "autonomy_policy", "cadence_protocol"] as const;
     for (const type of EXECUTION_ARTIFACT_TYPES) {
-      const existing = getArtifact(workspaceId, type);
+      const existing = await getArtifact(workspaceId, type);
       if (!existing) {
-        const rec = writeArtifact(workspaceId, type, executionArtifacts[type], userId);
+        const rec = await writeArtifact(workspaceId, type, executionArtifacts[type], userId);
         createdArtifacts.push({ artifact_type: rec.type, version: rec.version, artifact_id: rec.artifact_id });
       }
     }
@@ -216,7 +217,7 @@ launchRouter.post("/sessions/:sessionId/finalize", requireRole(["admin", "operat
       },
       at: new Date().toISOString()
     };
-    appendEvent(event);
+    await appendEvent(event);
 
     res.status(201).json({
       assumptions: result.assumptions,
@@ -230,4 +231,4 @@ launchRouter.post("/sessions/:sessionId/finalize", requireRole(["admin", "operat
     }
     res.status(400).json({ error: error instanceof Error ? error.message : "failed to finalize launch session" });
   }
-});
+}));

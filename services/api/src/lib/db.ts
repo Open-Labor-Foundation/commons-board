@@ -36,3 +36,9 @@ export async function closePool(): Promise<void> {
     pool = null;
   }
 }
+
+/** Reset the pool reference without ending it — used by test harnesses that
+ *  manage their own lifecycle and need to swap DATABASE_URL between runs. */
+export function resetPool(): void {
+  pool = null;
+}

@@ -51,8 +51,9 @@ import { idempotencyGuard } from "./lib/idempotency.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 import { startJobRunner } from "./services/agent-job-runner.js";
 import { runCadence } from "./routes/cadence.js";
-import { isDue, getCadenceState } from "./workers/scheduler.js";
+import { isDue, getCadenceState, type CadenceProtocol as SchedulerCadenceProtocol } from "./workers/scheduler.js";
 import { readJson } from "./lib/persistence.js";
+import { getArtifact } from "./lib/artifact-store.js";
 
 export function createApp() {
   const app = express();
@@ -127,13 +128,23 @@ function startCadenceScheduler(): void {
     }
   }
 
+  // Fallback protocol used when no cadence_protocol artifact exists yet.
+  const DEFAULT_PROTOCOL: SchedulerCadenceProtocol = {
+    enabled: true,
+    daily: { enabled: true },
+    weekly: { enabled: true }
+  };
+
   async function tick(): Promise<void> {
     const workspaces = getActiveWorkspaceIds();
     for (const workspaceId of workspaces) {
       try {
         const state = getCadenceState(workspaceId);
-        // Build a minimal cadence_protocol: daily enabled by default
-        const protocol = { enabled: true, daily: { enabled: true }, weekly: { enabled: true } };
+        // Read the cadence_protocol artifact; fall back to default if absent.
+        const artifact = await getArtifact(workspaceId, "cadence_protocol");
+        const protocol: SchedulerCadenceProtocol = artifact
+          ? { enabled: true, ...(artifact.payload as Record<string, unknown>) } as SchedulerCadenceProtocol
+          : DEFAULT_PROTOCOL;
         if (isDue(workspaceId, "daily", protocol)) {
           console.log(`[CB] Cadence due for workspace ${workspaceId} — running`);
           await runCadence(workspaceId, "scheduler");

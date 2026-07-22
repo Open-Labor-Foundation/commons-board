@@ -20,9 +20,11 @@ import { Router, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import type { GovernanceEvent } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
+import { asyncHandler } from "../lib/async-handler.js";
 import { getArtifact } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
+import { loadSettings } from "../lib/settings-store.js";
 
 export const federationRouter = Router();
 federationRouter.use(requireContext);
@@ -97,7 +99,7 @@ async function stubShareEventToRemote(
 // ---------------------------------------------------------------------------
 
 /** POST /api/v1/federation/links */
-federationRouter.post("/links", requireRole(["admin"]), (req: Request, res: Response) => {
+federationRouter.post("/links", requireRole(["admin"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const body = req.body as {
     remote_name?: string;
@@ -130,7 +132,7 @@ federationRouter.post("/links", requireRole(["admin"]), (req: Request, res: Resp
   const all = readJson<FederationLink[]>(linksKey(workspaceId), []);
   writeJsonAtomic(linksKey(workspaceId), [...all, link]);
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: workspaceId,
     event_type: "federation_linked",
@@ -148,7 +150,7 @@ federationRouter.post("/links", requireRole(["admin"]), (req: Request, res: Resp
   } satisfies GovernanceEvent);
 
   res.status(201).json(link);
-});
+}));
 
 /** GET /api/v1/federation/links */
 federationRouter.get("/links", (req: Request, res: Response) => {
@@ -158,7 +160,7 @@ federationRouter.get("/links", (req: Request, res: Response) => {
 });
 
 /** DELETE /api/v1/federation/links/:id */
-federationRouter.delete("/links/:id", requireRole(["admin"]), (req: Request, res: Response) => {
+federationRouter.delete("/links/:id", requireRole(["admin"]), asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId, userId } = req.ctx!;
   const { id } = req.params;
 
@@ -172,7 +174,7 @@ federationRouter.delete("/links/:id", requireRole(["admin"]), (req: Request, res
   const removed = all[idx];
   writeJsonAtomic(linksKey(workspaceId), all.filter((_, i) => i !== idx));
 
-  appendEvent({
+  await appendEvent({
     event_id: randomUUID(),
     org_id: workspaceId,
     event_type: "board_request_updated",
@@ -184,7 +186,7 @@ federationRouter.delete("/links/:id", requireRole(["admin"]), (req: Request, res
   } satisfies GovernanceEvent);
 
   res.status(200).json({ removed: true, id });
-});
+}));
 
 /** POST /api/v1/federation/links/:id/pull */
 federationRouter.post("/links/:id/pull", requireRole(["admin", "operator"]), async (req: Request, res: Response) => {
@@ -244,14 +246,12 @@ federationRouter.post("/links/:id/share", requireRole(["admin"]), async (req: Re
 });
 
 /** GET /api/v1/federation/portfolio */
-federationRouter.get("/portfolio", (req: Request, res: Response) => {
+federationRouter.get("/portfolio", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
 
   const links = readJson<FederationLink[]>(linksKey(workspaceId), []);
-  const businessProfile = getArtifact(workspaceId, "business_profile")?.payload ?? null;
-  const settingsKey = `settings/${workspaceId}`;
-  const settings = readJson<{ org_name?: string; governance_mode?: string }>(settingsKey, {});
-
+  const businessProfile = (await getArtifact(workspaceId, "business_profile"))?.payload ?? null;
+  const settings = await loadSettings(workspaceId);
   const activeLinks = links.filter((l) => l.status === "active");
   const totalPendingRequests = activeLinks.reduce(
     (sum, l) => sum + (l.last_snapshot?.pending_requests ?? 0),
@@ -284,4 +284,4 @@ federationRouter.get("/portfolio", (req: Request, res: Response) => {
         .reverse()[0] ?? null
     }
   });
-});
+}));

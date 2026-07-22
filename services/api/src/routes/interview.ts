@@ -460,7 +460,7 @@ interviewRouter.post("/:id/confirm", requireRole(["admin", "operator"]), async (
     for (const [key, payload] of Object.entries(result.artifacts)) {
       if (payload === undefined) continue;
       const type = key as ArtifactType;
-      const record = writeArtifact(orgId, type, payload, actor);
+      const record = await writeArtifact(orgId, type, payload, actor);
       written.push({ type, version: record.version, artifact_id: record.artifact_id });
     }
   } catch (err) {
@@ -722,7 +722,7 @@ interviewRouter.post("/seed-board", requireRole(["admin", "operator"]), async (r
     for (const [key, payload] of Object.entries(artifacts)) {
       if (payload === undefined) continue;
       const type = key as ArtifactType;
-      const record = writeArtifact(orgId, type, payload, actor);
+      const record = await writeArtifact(orgId, type, payload, actor);
       written.push({ type, version: record.version });
     }
     res.status(201).json({ ok: true, preset: presetName, org_id: orgId, written });
@@ -765,7 +765,7 @@ interviewRouter.post("/chairs/:domain/regenerate", requireRole(["admin", "operat
   const actor = req.ctx!.userId;
   const uiDomain = req.params.domain;
 
-  const current = getArtifact(orgId, "agent_blueprint");
+  const current = await getArtifact(orgId, "agent_blueprint");
   if (!current) {
     res.status(404).json({ error: "no board exists for this workspace yet" });
     return;
@@ -775,7 +775,7 @@ interviewRouter.post("/chairs/:domain/regenerate", requireRole(["admin", "operat
     const updatedChair = await regenerateChairWorkers(orgId, uiDomain);
     const payload = current.payload as { chairs: Array<{ chair_id: string; domain: string }> };
     const nextChairs = payload.chairs.map(c => (c.domain === uiDomain ? updatedChair : c));
-    const record = writeArtifact(orgId, "agent_blueprint", { ...payload, chairs: nextChairs }, actor);
+    const record = await writeArtifact(orgId, "agent_blueprint", { ...payload, chairs: nextChairs }, actor);
     res.status(200).json({ version: record.version, chair: updatedChair });
   } catch (err) {
     if (err instanceof ChairNotFoundError) {

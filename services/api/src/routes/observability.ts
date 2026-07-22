@@ -23,6 +23,8 @@ import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { loopBottlenecks } from "../lib/operational-loop.js";
 import { getLog } from "../lib/decision-log.js";
 import { getArtifact } from "../lib/artifact-store.js";
+import { listApprovals } from "../lib/approval-store.js";
+import { asyncHandler } from "../lib/async-handler.js";
 
 export const observabilityRouter = Router();
 observabilityRouter.use(requireContext);
@@ -54,14 +56,14 @@ observabilityRouter.get("/bottlenecks", (req: Request, res: Response) => {
 });
 
 /** GET /api/v1/obs/error-counts */
-observabilityRouter.get("/error-counts", (req: Request, res: Response) => {
+observabilityRouter.get("/error-counts", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
   const execRuns = readJson<Array<{ status: string }>>(
     `execution-runs/${workspaceId}`,
     []
   );
-  const decisionLog = getLog(workspaceId);
-  const approvals = readJson<Array<{ status: string }>>(`approval-records/${workspaceId}`, []);
+  const decisionLog = await getLog(workspaceId);
+  const approvals = await listApprovals(workspaceId);
   const failedRuns = execRuns.filter((r) => r.status === "failed").length;
   const rejectedApprovals = approvals.filter((a) => a.status === "rejected").length;
   res.status(200).json({
@@ -70,7 +72,7 @@ observabilityRouter.get("/error-counts", (req: Request, res: Response) => {
     decision_log_entries: decisionLog.length,
     governance_error_rate: Number((failedRuns / Math.max(1, execRuns.length)).toFixed(3))
   });
-});
+}));
 
 /** GET /api/v1/obs/connector-health — stub until Phase 15 connectors */
 observabilityRouter.get("/connector-health", (_req: Request, res: Response) => {
@@ -256,7 +258,7 @@ observabilityRouter.get("/metrics", (req: Request, res: Response) => {
 type ComplianceCheck = { name: string; pass: boolean; detail: string };
 
 /** GET /api/v1/obs/compliance-posture */
-observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => {
+observabilityRouter.get("/compliance-posture", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
 
   const REQUIRED_ARTIFACT_TYPES = [
@@ -270,9 +272,10 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
   const checks: ComplianceCheck[] = [];
 
   // 1. Has all 5 required artifacts
-  const missingArtifacts = REQUIRED_ARTIFACT_TYPES.filter(
-    (t) => getArtifact(workspaceId, t) === null
+  const artifactChecks = await Promise.all(
+    REQUIRED_ARTIFACT_TYPES.map(async (t) => ({ t, exists: (await getArtifact(workspaceId, t)) !== null }))
   );
+  const missingArtifacts = artifactChecks.filter((r) => !r.exists).map((r) => r.t);
   checks.push({
     name: "required_artifacts",
     pass: missingArtifacts.length === 0,
@@ -282,7 +285,7 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
   });
 
   // 2. SIM mode enabled (autonomy_policy.execution_mode === "sim" OR sim-mode file)
-  const policyRecord = getArtifact(workspaceId, "autonomy_policy");
+  const policyRecord = await getArtifact(workspaceId, "autonomy_policy");
   const policy = policyRecord?.payload as Record<string, unknown> | null ?? null;
   const simModeFile = readJson<{ mode?: string }>(`sim-mode/${workspaceId}`, {});
   const simEnabled =
@@ -296,7 +299,7 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
   });
 
   // 3. Has chairs in agent_blueprint
-  const blueprintRecord = getArtifact(workspaceId, "agent_blueprint");
+  const blueprintRecord = await getArtifact(workspaceId, "agent_blueprint");
   const blueprint = blueprintRecord?.payload as { chairs?: unknown[] } | null ?? null;
   const hasChairs = Array.isArray(blueprint?.chairs) && blueprint.chairs.length > 0;
   checks.push({
@@ -329,16 +332,16 @@ observabilityRouter.get("/compliance-posture", (req: Request, res: Response) => 
     checks,
     evaluated_at: new Date().toISOString()
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Intent / model / reasoning health
 // ---------------------------------------------------------------------------
 
 /** GET /api/v1/obs/intent-health */
-observabilityRouter.get("/intent-health", (req: Request, res: Response) => {
+observabilityRouter.get("/intent-health", asyncHandler(async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
-  const log = getLog(workspaceId);
+  const log = await getLog(workspaceId);
   const routed = log.filter((e) => e.event.event_type === "board_chat_completed").length;
 
   res.status(200).json({
@@ -347,7 +350,7 @@ observabilityRouter.get("/intent-health", (req: Request, res: Response) => {
     total_routed: routed,
     computed_at: new Date().toISOString()
   });
-});
+}));
 
 /** GET /api/v1/obs/model-router-health */
 observabilityRouter.get("/model-router-health", (_req: Request, res: Response) => {
