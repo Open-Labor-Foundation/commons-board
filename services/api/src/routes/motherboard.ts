@@ -22,7 +22,7 @@ import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import { routeBoardRequest, buildRoadmapPhases, buildRoadmapSummary, isValidStatusTransition } from "../lib/board-orchestration.js";
 import { getArtifact } from "../lib/artifact-store.js";
 import { appendEvent } from "../lib/decision-log.js";
-import { proposeDispatchToChair, submitDispatchDecision } from "../lib/commons-crew-client.js";
+import { proposeDispatchToChair, submitDispatchDecision, fetchPublishedArtifacts } from "../lib/commons-crew-client.js";
 
 export const motherboardRouter = Router();
 motherboardRouter.use(requireContext);
@@ -115,7 +115,7 @@ motherboardRouter.post("/requests", requireRole(["admin", "operator", "member"])
     success_criteria: Array.isArray(body.success_criteria) ? body.success_criteria : [],
     dependency_ids: Array.isArray(body.dependency_ids) ? body.dependency_ids : [],
     approval_required: body.approval_required ?? false,
-    auto_dispatch_to_commons_crew: body.auto_dispatch_to_commons_crew ?? false,
+    auto_dispatch_to_commons_crew: body.auto_dispatch_to_commons_crew ?? true,
     risk_level: body.risk_level ?? "low",
     created_at: now,
     updated_at: now
@@ -431,3 +431,54 @@ motherboardRouter.post("/requests/:id/dispatch-to-commons-crew/decision", requir
 
   res.status(200).json({ request: all[idx] });
 });
+
+/**
+ * GET /api/v1/board/requests/:id/deliverables
+ *
+ * Fetches published artifacts from the commons-crew run that this request
+ * was dispatched to. When a chair's commons-crew run executes a task that
+ * produces a deliverable (via the publish_artifact tool), the artifact is
+ * stored in commons-crew's artifact store. This route fetches those
+ * artifacts so the board UI can display download links to the user.
+ *
+ * Returns { deliverables: [] } if no dispatch has been approved yet, or if
+ * commons-crew is not reachable.
+ */
+motherboardRouter.get("/requests/:id/deliverables", requireRole(["admin", "operator", "member"]), asyncHandler(async (req: Request, res: Response) => {
+  const ctx = req.ctx!;
+  const all = readJson<BoardRequestRecord[]>(requestsKey(ctx.workspaceId), []);
+  const request = all.find((r) => r.id === req.params.id);
+  if (!request) {
+    res.status(404).json({ error: "request not found" });
+    return;
+  }
+
+  const dispatch = request.commons_crew_dispatch;
+  if (!dispatch || dispatch.status !== "approved") {
+    res.status(200).json({ deliverables: [] });
+    return;
+  }
+
+  const childRunId = (dispatch as { child_run_id?: string }).child_run_id;
+  if (!childRunId) {
+    res.status(200).json({ deliverables: [] });
+    return;
+  }
+
+  const artifacts = await fetchPublishedArtifacts(childRunId);
+  if (!artifacts) {
+    res.status(200).json({ deliverables: [], error: "commons-crew not reachable" });
+    return;
+  }
+
+  const crewUrl = process.env.CB_COMMONS_CREW_URL ?? "";
+  const deliverables = artifacts.map((a) => ({
+    id: a.id,
+    name: a.summary,
+    type: a.artifactType,
+    created_at: a.createdAt,
+    download_url: crewUrl ? `${crewUrl}/api/artifacts/${a.id}/download` : null,
+  }));
+
+  res.status(200).json({ deliverables });
+}));

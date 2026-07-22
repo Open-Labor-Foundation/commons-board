@@ -378,3 +378,43 @@ export async function submitDispatchDecision(input: SubmitDispatchDecisionInput)
     return null;
   }
 }
+
+export interface PublishedArtifact {
+  id: string;
+  runId: string | null;
+  taskId: string | null;
+  artifactType: string;
+  storagePath: string;
+  summary: string;
+  createdAt: string;
+}
+
+/**
+ * Fetches published artifacts from a commons-crew run. When a chair's
+ * commons-crew run executes a task that produces a deliverable, the
+ * publish_artifact tool copies the file into the run's artifact store and
+ * records an ArtifactRecord. This function fetches those records so the
+ * board can surface them to the user who made the original request.
+ *
+ * Non-fatal on any failure — returns null rather than throwing, same
+ * reasoning as the other bridge functions: commons-crew isn't guaranteed
+ * reachable, and a failed fetch should be a visible-but-recoverable state.
+ */
+export async function fetchPublishedArtifacts(runId: string): Promise<PublishedArtifact[] | null> {
+  const config = commonsCrewConfig();
+  if (!config) return null;
+  const { url, headers } = config;
+
+  try {
+    const resp = await fetch(`${url}/api/runs/${runId}/artifacts/published`, { headers });
+    if (!resp.ok) {
+      console.error(`[commons-crew-client] fetch-artifacts failed for run ${runId} (${resp.status})`);
+      return null;
+    }
+    const data = (await resp.json()) as { artifacts?: PublishedArtifact[] };
+    return data.artifacts ?? [];
+  } catch (err) {
+    console.error(`[commons-crew-client] fetch-artifacts errored for run ${runId}:`, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
