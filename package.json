@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "tsc -b tsconfig.json && npm run typecheck -w apps/web",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "dev": "npm run dev -w @commons-board/api",
