@@ -50,10 +50,10 @@ provider key through the Settings UI when you're ready. Read
 
 ## Status
 
-The core is built and verified: the governed hierarchy, the approval gate,
-and chair-to-commons-crew dispatch have all been exercised end to end
-against real running servers (propose → explicit approve → real delegated
-execution, and propose → explicit deny → no execution). What's not built
+The governed hierarchy is built. Its approval gate and chair-to-commons-crew
+dispatch have been exercised end to end against real running servers
+(propose → explicit approve → real delegated execution, and propose →
+explicit deny → no execution). What's not built
 is a deployment path for a non-technical operator — Docker and a terminal
 are the only way in today, and most of the small business owners and
 worker collectives this is ultimately for won't run a container by hand.
