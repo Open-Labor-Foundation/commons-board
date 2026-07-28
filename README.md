@@ -73,7 +73,7 @@ autonomy controls are shared.
 ## Addins
 
 Addins are both developed and installed here, and published to
-[commons-artifacts](https://github.com/Open-Labor-Foundation/commons-artifacts)
+[artifact-commons](https://github.com/Open-Labor-Foundation/artifact-commons)
 for other boards to install. Publishing one back from inside a running
 board (no git required) is planned, not built yet — today that step is
 manual.
