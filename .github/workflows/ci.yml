@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+# Build/typecheck/test job only checks out and runs read-only commands.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Build, typecheck, and test
