@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "./env.js";
+import { assertSafePathSegment } from "./safe-path-segment.js";
 
 export type JobStatus = "pending" | "running" | "completed" | "failed";
 
@@ -31,10 +32,12 @@ export type AgentJob = {
 };
 
 function jobsDir(workspaceId: string): string {
+  assertSafePathSegment(workspaceId, "workspaceId");
   return path.join(loadConfig().dataDir, "jobs", workspaceId);
 }
 
 function jobPath(workspaceId: string, jobId: string): string {
+  assertSafePathSegment(jobId, "jobId");
   return path.join(jobsDir(workspaceId), `${jobId}.json`);
 }
 

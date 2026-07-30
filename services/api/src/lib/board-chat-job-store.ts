@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "./env.js";
+import { assertSafePathSegment } from "./safe-path-segment.js";
 
 export type BoardChatJobStatus = "pending" | "running" | "done" | "error";
 
@@ -36,10 +37,12 @@ export type BoardChatJob = {
 };
 
 function boardJobsDir(workspaceId: string): string {
+  assertSafePathSegment(workspaceId, "workspaceId");
   return path.join(loadConfig().dataDir, "board-chat-jobs", workspaceId);
 }
 
 function boardJobPath(workspaceId: string, jobId: string): string {
+  assertSafePathSegment(jobId, "jobId");
   return path.join(boardJobsDir(workspaceId), `${jobId}.json`);
 }
 

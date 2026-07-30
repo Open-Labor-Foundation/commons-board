@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "./env.js";
+import { assertSafePathSegment } from "./safe-path-segment.js";
 
 export type AiChatMessage = {
   role: "user" | "assistant";
@@ -30,10 +31,12 @@ export type AiChatSessionSummary = {
 };
 
 function sessionsDir(workspaceId: string): string {
+  assertSafePathSegment(workspaceId, "workspaceId");
   return path.join(loadConfig().dataDir, "ai-chat-sessions", workspaceId);
 }
 
 function sessionPath(workspaceId: string, sessionId: string): string {
+  assertSafePathSegment(sessionId, "sessionId");
   return path.join(sessionsDir(workspaceId), `${sessionId}.json`);
 }
 
