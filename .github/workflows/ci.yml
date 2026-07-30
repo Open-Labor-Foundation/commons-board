@@ -15,10 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
+      # services/api's test script passes a quoted glob string to `node --test`.
+      # Node 20's test runner only accepts literal file/dir args, not glob
+      # strings, and fails outright; glob-string support requires 22+.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       - name: Install dependencies
