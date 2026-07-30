@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "./env.js";
-import { assertSafePathSegment } from "./safe-path-segment.js";
+import { SAFE_SEGMENT_PATTERN } from "./safe-path-segment.js";
 
 export type BoardChatJobStatus = "pending" | "running" | "done" | "error";
 
@@ -37,12 +37,16 @@ export type BoardChatJob = {
 };
 
 function boardJobsDir(workspaceId: string): string {
-  assertSafePathSegment(workspaceId, "workspaceId");
+  if (!SAFE_SEGMENT_PATTERN.test(workspaceId)) {
+    throw new Error(`invalid workspaceId: ${JSON.stringify(workspaceId)}`);
+  }
   return path.join(loadConfig().dataDir, "board-chat-jobs", workspaceId);
 }
 
 function boardJobPath(workspaceId: string, jobId: string): string {
-  assertSafePathSegment(jobId, "jobId");
+  if (!SAFE_SEGMENT_PATTERN.test(jobId)) {
+    throw new Error(`invalid jobId: ${JSON.stringify(jobId)}`);
+  }
   return path.join(boardJobsDir(workspaceId), `${jobId}.json`);
 }
 

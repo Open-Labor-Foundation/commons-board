@@ -10,14 +10,17 @@
  * (see auth.ts's x-workspace-id header) into path.join with no validation
  * at all. persistence.ts already guards the equivalent case with its own
  * resolvePath() segment check (SEGMENT_PATTERN) -- this is the same
- * approach, extracted so the three job/session stores can share one
- * definition instead of three slightly-different regexes drifting apart.
+ * pattern, shared here so the three job/session stores don't drift.
+ *
+ * The actual guard is inlined at each *Dir/*Path call site (an `if
+ * (!SAFE_SEGMENT_PATTERN.test(x)) throw` directly in the function that
+ * calls path.join) rather than calling out to a shared assert function --
+ * CodeQL's path-injection sanitizer recognition is intraprocedural, so a
+ * guard hidden behind an opaque function call wasn't being recognized as
+ * closing the taint path even though it genuinely does (confirmed: all 21
+ * call sites stayed flagged after the first version of this fix, which did
+ * exactly that). SAFE_SEGMENT_PATTERN is still exported so the three files
+ * share one definition instead of three copies drifting apart; only the
+ * control-flow shape of the check itself needed to move.
  */
-const SAFE_SEGMENT_PATTERN = /^[A-Za-z0-9_-]+$/;
-
-export function assertSafePathSegment(value: string, label: string): string {
-  if (typeof value !== "string" || !SAFE_SEGMENT_PATTERN.test(value)) {
-    throw new Error(`invalid ${label}: ${JSON.stringify(value)}`);
-  }
-  return value;
-}
+export const SAFE_SEGMENT_PATTERN = /^[A-Za-z0-9_-]+$/;
