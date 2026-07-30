@@ -90,7 +90,7 @@ export async function registerChair(input: RegisterChairInput): Promise<Register
 
     return { runId: data.run.id, sessionId: data.session.id };
   } catch (err) {
-    console.error(`[commons-crew-client] chair registration errored for ${input.chairRole}/${input.orgContext}:`, err instanceof Error ? err.message : err);
+    console.error("[commons-crew-client] chair registration errored for", `${input.chairRole}/${input.orgContext}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -193,7 +193,7 @@ export async function proposeDispatchToChair(input: ProposeDispatchInput): Promi
 
     return { approvalId: approval.id, proposalId: proposal.id, taskId: approval.taskId, runId: input.runId };
   } catch (err) {
-    console.error(`[commons-crew-client] propose-dispatch errored for run ${input.runId}:`, err instanceof Error ? err.message : err);
+    console.error("[commons-crew-client] propose-dispatch errored for run", `${input.runId}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -303,7 +303,7 @@ export async function ensureBoardMemberIdentity(input: { orgContext: string; use
 
     return userId;
   } catch (err) {
-    console.error(`[commons-crew-client] identity bridge errored for ${safeEmailOrLogin}:`, err instanceof Error ? err.message : err);
+    console.error("[commons-crew-client] identity bridge errored for", `${safeEmailOrLogin}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -374,7 +374,7 @@ export async function submitDispatchDecision(input: SubmitDispatchDecisionInput)
 
     return { decision: "approved", childRunId: latest.payload.childRunId, layer: latest.payload.layer ?? "unknown" };
   } catch (err) {
-    console.error(`[commons-crew-client] decision errored for approval ${input.approvalId}:`, err instanceof Error ? err.message : err);
+    console.error("[commons-crew-client] decision errored for approval", `${input.approvalId}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
