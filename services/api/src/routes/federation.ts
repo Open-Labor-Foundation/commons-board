@@ -27,6 +27,20 @@ import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 export const federationRouter = Router();
 federationRouter.use(requireContext);
 
+// CodeQL flagged /\/+$/ against a request-body-controlled string as
+// js/polynomial-redos: the engine can try a match at every position within
+// a long run of '/' characters, each attempt backtracking through the whole
+// run before failing, making a crafted remote_url with many slashes O(n^2).
+// No regex at all sidesteps the question rather than trying to construct a
+// "provably safe" pattern.
+export function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -118,7 +132,7 @@ federationRouter.post("/links", requireRole(["admin"]), (req: Request, res: Resp
     workspace_id: workspaceId,
     remote_workspace_id: body.remote_workspace_id ? String(body.remote_workspace_id) : null,
     remote_name: String(body.remote_name),
-    remote_url: String(body.remote_url).replace(/\/+$/, ""),
+    remote_url: stripTrailingSlashes(String(body.remote_url)),
     api_key_env: String(body.api_key_env),
     status: body.status ?? "active",
     linked_at: now,
