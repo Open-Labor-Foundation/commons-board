@@ -4,6 +4,8 @@
  * Signatures use HMAC-SHA256 keyed from the env var named in `signing_secret_env`.
  */
 import { createHmac } from "node:crypto";
+import { isIP } from "node:net";
+import { lookup } from "node:dns/promises";
 import { readJson, writeJsonAtomic } from "./persistence.js";
 
 export type WebhookSubscription = {
@@ -33,6 +35,44 @@ function signPayload(payload: string, secret: string): string {
   return "sha256=" + createHmac("sha256", secret).update(payload).digest("hex");
 }
 
+function isPrivateOrLoopbackIp(ip: string): boolean {
+  if (isIP(ip) === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    return a === 127 || a === 10 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+  if (isIP(ip) === 6) {
+    const lower = ip.toLowerCase();
+    return lower === "::1" || lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd");
+  }
+  return false;
+}
+
+// Blocks SSRF against internal services / cloud metadata endpoints. Checked
+// both at subscription create time (routes/webhooks.ts) and again here on
+// every dispatch: a hostname that resolved to a public IP at creation time
+// can be re-pointed at an internal IP later (DNS rebinding), and this also
+// covers subscriptions that were created before this check existed.
+export async function assertSafeWebhookUrl(rawUrl: string): Promise<void> {
+  const parsed = new URL(rawUrl);
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("webhook url must be http or https");
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === "localhost") {
+    throw new Error(`webhook url host "${hostname}" is not allowed`);
+  }
+  if (isIP(hostname)) {
+    if (isPrivateOrLoopbackIp(hostname)) {
+      throw new Error(`webhook url host "${hostname}" is a private/loopback address`);
+    }
+    return;
+  }
+  const { address } = await lookup(hostname);
+  if (isPrivateOrLoopbackIp(address)) {
+    throw new Error(`webhook url host "${hostname}" resolves to a private/loopback address (${address})`);
+  }
+}
+
 export async function dispatchWebhookEvent(
   orgId: string,
   event: { event_type: string; [key: string]: unknown }
@@ -52,6 +92,7 @@ export async function dispatchWebhookEvent(
 
     let delivery: WebhookDelivery;
     try {
+      await assertSafeWebhookUrl(sub.url);
       const res = await fetch(sub.url, {
         method: "POST",
         headers: {

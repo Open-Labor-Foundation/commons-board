@@ -23,7 +23,8 @@ import { readJson, writeJsonAtomic } from "../lib/persistence.js";
 import {
   type WebhookSubscription,
   type WebhookDelivery,
-  dispatchWebhookEvent
+  dispatchWebhookEvent,
+  assertSafeWebhookUrl
 } from "../lib/webhook-delivery.js";
 
 export const webhooksRouter = Router();
@@ -33,7 +34,7 @@ const subsKey = (w: string) => `webhook-subscriptions/${w}`;
 const deliveriesKey = (w: string) => `webhook-deliveries/${w}`;
 
 /** POST /api/v1/webhooks/subscriptions */
-webhooksRouter.post("/subscriptions", requireRole(["admin"]), (req: Request, res: Response) => {
+webhooksRouter.post("/subscriptions", requireRole(["admin"]), async (req: Request, res: Response) => {
   const { workspaceId } = req.ctx!;
   const body = req.body as {
     url?: string;
@@ -52,6 +53,13 @@ webhooksRouter.post("/subscriptions", requireRole(["admin"]), (req: Request, res
     if (!["https:", "http:"].includes(parsedUrl.protocol)) throw new Error("invalid protocol");
   } catch {
     res.status(400).json({ error: "url must be a valid http or https URL" });
+    return;
+  }
+
+  try {
+    await assertSafeWebhookUrl(parsedUrl.toString());
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "url is not allowed" });
     return;
   }
 
