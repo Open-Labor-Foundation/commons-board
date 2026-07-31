@@ -72,6 +72,17 @@ services:
       NEXT_PUBLIC_COMMONS_WORKSPACE_ID: ${NEXT_PUBLIC_COMMONS_WORKSPACE_ID:-default}
       NEXT_PUBLIC_COMMONS_USER_ID: ${NEXT_PUBLIC_COMMONS_USER_ID:-operator}
       NEXT_PUBLIC_COMMONS_USER_ROLE: ${NEXT_PUBLIC_COMMONS_USER_ROLE:-admin}
+      # Server-side counterparts middleware.ts actually forwards as
+      # x-user-id/x-workspace-id/x-user-role -- distinct from the
+      # NEXT_PUBLIC_* vars above (client-bundle-visible, display only).
+      # This compose file is already localhost-only bound (127.0.0.1:3100),
+      # matching CB_INSECURE_HEADER_AUTH's single-operator threat model;
+      # middleware.ts fails closed (forwards no identity, backend rejects)
+      # if these three aren't all set, so they must be explicit here rather
+      # than relying on an in-app default.
+      CB_WORKSPACE_ID: ${CB_WORKSPACE_ID:-default}
+      CB_USER_ID: ${CB_USER_ID:-operator}
+      CB_USER_ROLE: ${CB_USER_ROLE:-admin}
     volumes:
       - cb-signals:/app/signals
     ports:
