@@ -25,10 +25,10 @@ COPY --chown=app:app apps/web apps/web
 ENV NODE_ENV=production
 
 # Initial production build; move static assets into standalone for serving
+RUN mkdir -p /app/addins /app/signals
 RUN cd /app/apps/web && npm run build \
   && cp -r .next/static .next/standalone/apps/web/.next/static \
-  && cp -r public .next/standalone/apps/web/public 2>/dev/null || true \
-  && mkdir -p /app/signals
+  && cp -r public .next/standalone/apps/web/public 2>/dev/null || true
 
 WORKDIR /app/apps/web
 EXPOSE 3000

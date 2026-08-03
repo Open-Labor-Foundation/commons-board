@@ -41,8 +41,14 @@ services:
       FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Explicit, shared with web below — installed pack content (manifest,
+      # schemas, pages, seeds) must be visible to both containers from one
+      # source of truth rather than each falling back to its own
+      # differently-resolved default.
+      ADDINS_DIR: /app/addins
     volumes:
       - cb-signals:/app/signals
+      - cb-addins:/app/addins
       - cb-data:/app/.data
       - ${CB_LABOR_COMMONS_HOST_PATH:-/dev/null}:/labor-commons:ro
       # Docker socket access (container rebuild-restart from the addins UI) is
@@ -83,8 +89,12 @@ services:
       CB_WORKSPACE_ID: ${CB_WORKSPACE_ID:-default}
       CB_USER_ID: ${CB_USER_ID:-operator}
       CB_USER_ROLE: ${CB_USER_ROLE:-admin}
+      # Read by the ADDIN_PAGES codegen script (scripts/generate-addin-page-registry.mjs)
+      # at build time, same volume and path as the api service above.
+      ADDINS_DIR: /app/addins
     volumes:
       - cb-signals:/app/signals
+      - cb-addins:/app/addins
     ports:
       - "127.0.0.1:3100:3000"
 
@@ -92,3 +102,4 @@ volumes:
   db-data:
   cb-signals:
   cb-data:
+  cb-addins:

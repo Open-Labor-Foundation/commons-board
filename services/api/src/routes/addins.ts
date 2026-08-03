@@ -52,7 +52,7 @@ addinsRouter.post("/:id/install", requireRole(["admin", "operator"]), async (req
       res.status(404).json({ error: `Pack "${id}" not found in catalog` });
       return;
     }
-    const result = installPack(pack);
+    const result = await installPack(pack);
     res.status(200).json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "install failed";
