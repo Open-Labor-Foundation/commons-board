@@ -68,7 +68,8 @@ export type GovernanceEventType =
   | "meeting_created"
   | "meeting_closed"
   | "meeting_respond_completed"
-  | "exec_session_created";
+  | "exec_session_created"
+  | "inference_request_brokered";
 
 /** A governance event. Signed and chained when persisted. */
 export interface GovernanceEvent {

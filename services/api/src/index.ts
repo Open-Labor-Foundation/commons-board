@@ -47,6 +47,7 @@ import { demoRouter } from "./routes/demo.js";
 import { workersRouter } from "./routes/workers.js";
 import { addinsRouter } from "./routes/addins.js";
 import { aiChatRouter } from "./routes/ai-chat.js";
+import { inferenceBrokerRouter } from "./routes/inference-broker.js";
 import { idempotencyGuard } from "./lib/idempotency.js";
 import "./lib/provider/bootstrap.js"; // registers built-in inference adapters
 import { startJobRunner } from "./services/agent-job-runner.js";
@@ -104,6 +105,7 @@ export function createApp() {
   app.use("/api/v1/workers", workersRouter);             // agent workforce visibility
   app.use("/api/v1/addins", addinsRouter);               // installed add-in registry
   app.use("/api/v1/ai/chat", aiChatRouter);              // freeform direct AI chat
+  app.use("/api/v1/inference", inferenceBrokerRouter);   // addin app inference lane (v0 groundwork)
 
   // Structured error handler (last).
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
