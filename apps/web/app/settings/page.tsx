@@ -15,6 +15,15 @@ type ProviderConfig = {
   concurrency_cost?: number;
 };
 
+type SubscriptionState = {
+  status: "active" | "exhausted" | "suspended" | "unknown";
+  plan_name: string | null;
+  tokens_used: number | null;
+  token_limit: number | null;
+  period_end: string | null;
+  portal_url: string | null;
+};
+
 type WorkspaceSettings = {
   workspace_id: string;
   org_name?: string;
@@ -29,10 +38,11 @@ type WorkspaceSettings = {
 };
 
 const PROVIDERS = [
-  { id: "featherless", label: "Featherless AI", defaultModel: "Qwen/Qwen3-32B" },
-  { id: "openai", label: "OpenAI", defaultModel: "gpt-4o" },
-  { id: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet-4-6" },
-  { id: "other", label: "Other / Self-hosted", defaultModel: "" },
+  { id: "olf-managed", label: "OLF Managed Inference", defaultModel: "", kind: "olf_managed" as const },
+  { id: "featherless", label: "Featherless AI", defaultModel: "Qwen/Qwen3-32B", kind: "hosted_api" as const },
+  { id: "openai", label: "OpenAI", defaultModel: "gpt-4o", kind: "hosted_api" as const },
+  { id: "anthropic", label: "Anthropic", defaultModel: "claude-sonnet-4-6", kind: "hosted_api" as const },
+  { id: "other", label: "Other / Self-hosted", defaultModel: "", kind: "hosted_api" as const },
 ];
 
 export default function SettingsPage() {
@@ -53,6 +63,7 @@ export default function SettingsPage() {
   const [concurrencyCost, setConcurrencyCost] = useState(1);
   const [confidenceFloor, setConfidenceFloor] = useState(0.45);
   const [catalogUrl, setCatalogUrl] = useState("");
+  const [subscription, setSubscription] = useState<SubscriptionState | null>(null);
 
   const load = useCallback(async () => {
     const s = await apiFetch<WorkspaceSettings>("/api/v1/settings");
@@ -73,6 +84,14 @@ export default function SettingsPage() {
         setConfidenceFloor(s.board_settings.confidence_floor);
       }
       setCatalogUrl(s.addin_catalog_url ?? "");
+
+      // Fetch subscription state only when the active provider is olf_managed.
+      if (activeProvider?.kind === "olf_managed") {
+        const sub = await apiFetch<SubscriptionState>("/api/v1/settings/subscription");
+        setSubscription(sub);
+      } else {
+        setSubscription(null);
+      }
     }
     setLoading(false);
   }, []);
@@ -85,6 +104,7 @@ export default function SettingsPage() {
     if (def?.defaultModel) setModelName(def.defaultModel);
     setApiKey("");
     setKeyConfigured(false);
+    setSubscription(null);
   }
 
   async function save() {
@@ -93,17 +113,21 @@ export default function SettingsPage() {
     setSaved(false);
 
     const providerDef = PROVIDERS.find(p => p.id === provider);
+    const isOlfManaged = providerDef?.kind === "olf_managed";
     const providerConfig: ProviderConfig = {
       provider_id: provider,
-      kind: "hosted_api",
+      kind: providerDef?.kind ?? "hosted_api",
       display_name: providerDef?.label ?? provider,
       model: modelName.trim(),
       // Send the typed key if non-empty; otherwise send "" so the server preserves the existing key.
       api_key: apiKey.trim() || "",
       endpoint: null,
       options: {},
-      concurrency_lanes: Math.max(1, concurrencyLanes),
-      concurrency_cost: Math.max(1, concurrencyCost),
+      // concurrency_lanes/cost are featherless-specific; omit for olf_managed
+      ...(isOlfManaged ? {} : {
+        concurrency_lanes: Math.max(1, concurrencyLanes),
+        concurrency_cost: Math.max(1, concurrencyCost),
+      }),
     };
 
     const { status } = await apiPut("/api/v1/settings", {
@@ -214,38 +238,128 @@ export default function SettingsPage() {
               Stored on your server. Never returned by the API — leave blank when saving other settings to preserve it.
             </p>
           </Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Field label="Concurrency lanes">
-              <input
-                type="number"
-                min={1}
-                max={64}
-                value={concurrencyLanes}
-                onChange={e => setConcurrencyLanes(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                style={{ width: "100%", padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }}
-              />
-              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0" }}>
-                Total simultaneous inference slots on this API key (Featherless lane allotment).
-              </p>
-            </Field>
-            <Field label="Lane cost per call">
-              <input
-                type="number"
-                min={1}
-                max={16}
-                value={concurrencyCost}
-                onChange={e => setConcurrencyCost(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                style={{ width: "100%", padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }}
-              />
-              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0" }}>
-                Lanes consumed per call for this model. Check the Featherless model page for the cost.
-              </p>
-            </Field>
-          </div>
-          <div style={{ padding: "8px 12px", background: "var(--surface-overlay)", borderRadius: "var(--radius)", fontSize: 12, color: "var(--text-muted)" }}>
-            Max parallel calls: <strong style={{ color: "var(--text)" }}>{Math.max(1, Math.floor(concurrencyLanes / Math.max(1, concurrencyCost)))}</strong>
-            {" "}— board chat and worker jobs will not exceed this limit simultaneously.
-          </div>
+          {PROVIDERS.find(p => p.id === provider)?.kind !== "olf_managed" && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <Field label="Concurrency lanes">
+                  <input
+                    type="number"
+                    min={1}
+                    max={64}
+                    value={concurrencyLanes}
+                    onChange={e => setConcurrencyLanes(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    style={{ width: "100%", padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }}
+                  />
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0" }}>
+                    Total simultaneous inference slots on this API key (Featherless lane allotment).
+                  </p>
+                </Field>
+                <Field label="Lane cost per call">
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={concurrencyCost}
+                    onChange={e => setConcurrencyCost(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    style={{ width: "100%", padding: "9px 12px", fontSize: 14, boxSizing: "border-box" }}
+                  />
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0" }}>
+                    Lanes consumed per call for this model. Check the Featherless model page for the cost.
+                  </p>
+                </Field>
+              </div>
+              <div style={{ padding: "8px 12px", background: "var(--surface-overlay)", borderRadius: "var(--radius)", fontSize: 12, color: "var(--text-muted)" }}>
+                Max parallel calls: <strong style={{ color: "var(--text)" }}>{Math.max(1, Math.floor(concurrencyLanes / Math.max(1, concurrencyCost)))}</strong>
+                {" "}— board chat and worker jobs will not exceed this limit simultaneously.
+              </div>
+            </>
+          )}
+          {PROVIDERS.find(p => p.id === provider)?.kind === "olf_managed" && (
+            <div style={{ padding: "8px 12px", background: "var(--surface-overlay)", borderRadius: "var(--radius)", fontSize: 12, color: "var(--text-muted)" }}>
+              OLF Managed Inference uses token-metered billing — no concurrency lane configuration needed.
+              Your API key identifies your subscription.
+            </div>
+          )}
+          {PROVIDERS.find(p => p.id === provider)?.kind === "olf_managed" && subscription && (
+            <div style={{
+              padding: "16px",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
+              background: "var(--surface)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Subscription</span>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "2px 8px",
+                  borderRadius: 4,
+                  textTransform: "uppercase",
+                  color: subscription.status === "active" ? "#16a34a"
+                    : subscription.status === "exhausted" ? "#dc2626"
+                    : subscription.status === "suspended" ? "#d97706"
+                    : "#64748b",
+                  background: subscription.status === "active" ? "#dcfce7"
+                    : subscription.status === "exhausted" ? "#fee2e2"
+                    : subscription.status === "suspended" ? "#fef3c7"
+                    : "#f1f5f9",
+                }}>
+                  {subscription.status}
+                </span>
+              </div>
+              {subscription.plan_name && (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 8px" }}>
+                  Plan: <strong style={{ color: "var(--text)" }}>{subscription.plan_name}</strong>
+                </p>
+              )}
+              {subscription.tokens_used != null && (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 8px" }}>
+                  Tokens used: <strong style={{ color: "var(--text)" }}>
+                    {subscription.tokens_used.toLocaleString()}
+                  </strong>
+                  {subscription.token_limit != null && (
+                    <> / {subscription.token_limit.toLocaleString()}</>
+                  )}
+                  {subscription.token_limit != null && (
+                    <span style={{ marginLeft: 8, color: "var(--text-muted)" }}>
+                      ({Math.round((subscription.tokens_used / subscription.token_limit) * 100)}%)
+                    </span>
+                  )}
+                </p>
+              )}
+              {subscription.period_end && (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px" }}>
+                  Resets: <strong style={{ color: "var(--text)" }}>
+                    {new Date(subscription.period_end).toLocaleDateString()}
+                  </strong>
+                </p>
+              )}
+              {subscription.status === "unknown" && (
+                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 12px", fontStyle: "italic" }}>
+                  Could not reach the OLF service to check subscription status. Inference may still work if the service is available.
+                </p>
+              )}
+              {subscription.portal_url && (
+                <a
+                  href={subscription.portal_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--brand)",
+                    textDecoration: "none",
+                    padding: "6px 12px",
+                    border: "1px solid var(--brand)",
+                    borderRadius: "var(--radius)",
+                  }}
+                >
+                  Manage subscription →
+                </a>
+              )}
+            </div>
+          )}
         </Section>
 
         <Section title="Board Reasoning">

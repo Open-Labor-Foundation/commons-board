@@ -93,6 +93,30 @@ function releaseProviderSlot(providerId: string): void {
   if (next) next();
 }
 
+/**
+ * Resolve the max parallel calls for a provider config.
+ *
+ * For featherless-style providers (hosted_api with concurrency_lanes set),
+ * this is floor(lanes / cost) — the lane-based concurrency model.
+ *
+ * For OLF Managed Inference (olf_managed), there are no lanes — billing is
+ * token-metered, not concurrency-metered. A sensible default of 4 allows
+ * reasonable parallelism without overwhelming the service.
+ *
+ * For any provider without concurrency_lanes set, defaults to 1 (safe,
+ * conservative).
+ */
+function resolveMaxParallel(config: { kind: string; concurrency_lanes?: number; concurrency_cost?: number }): number {
+  // OLF Managed: token-metered, no lane concept — use a reasonable default.
+  if (config.kind === "olf_managed") {
+    return 4;
+  }
+  // Featherless-style: lane-based concurrency.
+  const lanes = config.concurrency_lanes ?? 1;
+  const cost = Math.max(1, config.concurrency_cost ?? 1);
+  return Math.max(1, Math.floor(lanes / cost));
+}
+
 export async function complete(
   workspaceId: string,
   req: Omit<InferenceRequest, "correlation_id"> & { correlation_id?: string }
@@ -108,9 +132,7 @@ export async function complete(
     throw new NoProviderConfiguredError(workspaceId);
   }
 
-  const lanes = config.concurrency_lanes ?? 1;
-  const cost = Math.max(1, config.concurrency_cost ?? 1);
-  const maxParallel = Math.max(1, Math.floor(lanes / cost));
+  const maxParallel = resolveMaxParallel(config);
 
   const release = await acquireProviderSlot(config.provider_id, maxParallel);
   try {
@@ -146,8 +168,10 @@ function isRateLimitError(error: string | undefined): boolean {
 
 /**
  * Returns the effective concurrency budget for the active provider of a workspace.
- * maxParallel = floor(lanes / cost) — the number of calls that can run simultaneously
- * without exceeding the API key's lane allotment.
+ *
+ * For featherless-style providers: maxParallel = floor(lanes / cost).
+ * For OLF Managed: maxParallel = 4 (token-metered, no lane concept).
+ * For others: maxParallel = 1 (conservative default).
  */
 export function getProviderConcurrency(workspaceId: string): {
   lanes: number;
@@ -158,7 +182,8 @@ export function getProviderConcurrency(workspaceId: string): {
   const config = settings?.providers.find((p) => p.provider_id === settings?.active_provider_id);
   const lanes = config?.concurrency_lanes ?? 1;
   const cost = Math.max(1, config?.concurrency_cost ?? 1);
-  return { lanes, cost, maxParallel: Math.max(1, Math.floor(lanes / cost)) };
+  const maxParallel = config ? resolveMaxParallel(config) : 1;
+  return { lanes, cost, maxParallel };
 }
 
 /**

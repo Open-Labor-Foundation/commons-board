@@ -5,3 +5,4 @@
 import "./hosted-api.js";
 import "./local-inference.js";
 import "./harness-console.js";
+import "./olf-managed.js";

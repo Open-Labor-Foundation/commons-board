@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/shared" },
     { "path": "packages/connectors" },
+    { "path": "packages/inference-gateway" },
     { "path": "services/api" }
   ]
 }

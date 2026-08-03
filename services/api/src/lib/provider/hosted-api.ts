@@ -58,10 +58,12 @@ class HostedApiProvider implements InferenceProvider {
         })
       });
       if (!res.ok) {
-        return this.fail(`provider HTTP ${res.status}`);
+        return this.fail(mapHttpError(res.status));
       }
       const data = (await res.json()) as {
         choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+        model?: string;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
       const text = data.choices?.[0]?.message?.content ?? "";
       const finishReason = data.choices?.[0]?.finish_reason;
@@ -74,7 +76,17 @@ class HostedApiProvider implements InferenceProvider {
       if (text.trim() === "" && finishReason === "length") {
         return this.fail("provider truncated the response before emitting any content (finish_reason=length) -- max_tokens too low for this model");
       }
-      return { ok: true, text, provider_id: this.provider_id, model: req.model ?? this.config.model };
+      const usage = data.usage && typeof data.usage.prompt_tokens === "number"
+        ? {
+            prompt_tokens: data.usage.prompt_tokens,
+            completion_tokens: data.usage.completion_tokens ?? 0,
+            total_tokens: data.usage.total_tokens ?? (data.usage.prompt_tokens + (data.usage.completion_tokens ?? 0)),
+          }
+        : undefined;
+      // Surface the resolved model from the response for provenance — the
+      // provider may resolve an alias to a specific versioned model.
+      const resolvedModel = data.model ?? req.model ?? this.config.model;
+      return { ok: true, text, provider_id: this.provider_id, model: resolvedModel, usage };
     } catch (err) {
       return this.fail(err instanceof Error ? err.message : "request failed");
     }
@@ -82,6 +94,25 @@ class HostedApiProvider implements InferenceProvider {
 
   private fail(error: string): InferenceResponse {
     return { ok: false, text: "", provider_id: this.provider_id, model: this.config.model, error };
+  }
+}
+
+/**
+ * Maps provider HTTP status codes to actionable denial messages.
+ * This gives the caller a human-readable reason instead of a bare status code.
+ */
+function mapHttpError(status: number): string {
+  switch (status) {
+    case 401:
+      return "provider rejected API key (HTTP 401) — check that the key is valid";
+    case 402:
+      return "provider indicates payment required (HTTP 402) — subscription may be exhausted";
+    case 403:
+      return "provider denied access (HTTP 403) — subscription may be suspended";
+    case 429:
+      return `provider rate limited (HTTP 429)`;
+    default:
+      return `provider HTTP ${status}`;
   }
 }
 

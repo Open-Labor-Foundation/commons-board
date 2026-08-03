@@ -9,7 +9,7 @@
  */
 
 /** Implementation styles a provider adapter can take. */
-export type ProviderKind = "hosted_api" | "harness_console" | "local_inference";
+export type ProviderKind = "hosted_api" | "harness_console" | "local_inference" | "olf_managed";
 
 /**
  * Provider configuration as stored in workspace settings.
@@ -56,6 +56,16 @@ export interface InferenceRequest {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
+/** Token usage information from an inference call. */
+export interface InferenceUsage {
+  /** Tokens in the prompt. */
+  prompt_tokens: number;
+  /** Tokens in the completion. */
+  completion_tokens: number;
+  /** Total tokens (prompt + completion). */
+  total_tokens: number;
+}
+
 /** A provider-agnostic inference response. */
 export interface InferenceResponse {
   ok: boolean;
@@ -63,6 +73,41 @@ export interface InferenceResponse {
   provider_id: string;
   model: string;
   error?: string;
+  /**
+   * Token usage from the call, when available.
+   * OLF Managed Inference and other OpenAI-compatible providers return this
+   * in the standard `usage` block. Used for metering and display.
+   */
+  usage?: InferenceUsage;
+}
+
+/**
+ * Read-only subscription state for an OLF Managed Inference subscription.
+ *
+ * Fetched from the OLF service's /subscription endpoint using the API key
+ * (which IS the subscription identity — invariant 3: API key = identity).
+ *
+ * This is a read model: the board displays it but never modifies it.
+ * Plan/tier/billing management happens at the OLF portal (invariant 5:
+ * money/plan/tier = link-out), not here.
+ *
+ * When the OLF service is unreachable or the key is invalid, status is
+ * "unknown" and the other fields are null — the board never blocks on
+ * subscription display.
+ */
+export interface OlfSubscriptionState {
+  /** Subscription status — "active" means inference is allowed. */
+  status: "active" | "exhausted" | "suspended" | "unknown";
+  /** Human-readable plan name (e.g. "Starter", "Collective"). Display only. */
+  plan_name: string | null;
+  /** Tokens used in the current billing period. */
+  tokens_used: number | null;
+  /** Token allowance for the current billing period. Null = unlimited. */
+  token_limit: number | null;
+  /** ISO 8601 timestamp when the current period resets. */
+  period_end: string | null;
+  /** URL of the OLF portal for subscription management (link-out target). */
+  portal_url: string | null;
 }
 
 /** The common interface every provider adapter implements. */

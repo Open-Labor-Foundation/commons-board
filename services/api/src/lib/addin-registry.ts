@@ -16,6 +16,43 @@ const LOCAL_CATALOG_PATH =
 
 export type AddinNavItem = { href: string; label: string };
 
+/**
+ * The capability contract (OLF Managed Inference §5): a declaration of the
+ * grade of inference an artifact requires, expressed against an abstraction
+ * that EITHER a managed Foundry backend OR a customer self-hosted endpoint
+ * can satisfy. This is a DECLARATION (what the artifact needs), distinct from
+ * commons-crew's ProviderCapabilities (what the transport can do) and from
+ * the governance ledger's model-version provenance (what was actually used).
+ * Keeping these three axes separate is what prevents the two fulfillment
+ * modes from forking into diverging codebases.
+ *
+ * Mirrors artifact-commons/schemas/inference-need.schema.json exactly -- that
+ * schema is the certification gate's source of truth precisely because it's
+ * the same shape the real consumer (this type) already parses.
+ */
+export type InferenceNeed = {
+  determination_type: "chat" | "planning" | "execution" | "synthesis";
+  model_class: string;
+  context: {
+    min_tokens: number;
+    typical_input_tokens?: number;
+    typical_output_tokens?: number;
+  };
+  version_pin: {
+    declared_version: string;
+    pin_policy?: "exact" | "minor" | "any";
+  };
+  disclosed_cost: {
+    expected_tokens_per_call: number;
+    basis: "measured" | "estimated" | "upper_bound";
+    measured_at?: string;
+  };
+  drift_reconciliation?: {
+    threshold_ratio: number;
+    action_on_drift?: "flag_for_recost" | "block_until_recost" | "downgrade_to_estimated";
+  };
+};
+
 export type AddinManifest = {
   id: string;
   version: string;
@@ -27,6 +64,8 @@ export type AddinManifest = {
   nav?: { heading: string; items: AddinNavItem[] };
   pages?: Array<{ route: string; component: string }>;
   seeds?: string[];
+  /** Optional in v1. Declares the managed-inference need (§5). Absent = no managed-inference requirement. */
+  inference_need?: InferenceNeed;
 };
 
 export type CatalogPack = AddinManifest & {

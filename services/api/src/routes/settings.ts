@@ -4,12 +4,17 @@
  * API keys entered by the user are stored in workspace settings (admin-only endpoint).
  * GET masks api_key values — returns "configured" if set, "" if not.
  * PUT preserves an existing api_key when the incoming value is blank.
+ *
+ * GET /subscription — returns OLF Managed Inference subscription state.
+ * Only meaningful when the active provider kind is "olf_managed"; returns 404
+ * for other provider kinds (invariant: subscription display is OLF-only).
  */
 import { Router, type Request, type Response } from "express";
-import type { ProviderConfig, Role, WorkspaceSettings } from "@commons-board/shared";
+import type { OlfSubscriptionState, ProviderConfig, Role, WorkspaceSettings } from "@commons-board/shared";
 import { requireContext, requireRole } from "../lib/auth.js";
 import { isProviderKindRegistered } from "../lib/provider/index.js";
 import { readJson, writeJsonAtomic } from "../lib/persistence.js";
+import { fetchSubscriptionState, buildPortalUrl } from "../lib/olf-subscription.js";
 
 export const settingsRouter = Router();
 
@@ -116,5 +121,41 @@ settingsRouter.put("/", requireRole(["admin", "operator"]), (req: Request, res: 
   res.status(200).json({
     ...saved,
     providers: maskProviders(saved.providers)
+  });
+});
+
+/**
+ * GET /subscription — OLF Managed Inference subscription state.
+ *
+ * Returns 404 if the active provider is not "olf_managed" — subscription
+ * display is OLF-only (invariant: no subscription concept for third-party
+ * providers).
+ *
+ * Returns 200 with status "unknown" if the OLF service is unreachable or
+ * the key is invalid — the board never blocks on subscription display.
+ *
+ * The response includes a portal_url with a signed hand-off token for the
+ * "Manage subscription" link-out (invariant 5: money/plan/tier = link-out).
+ * The API key is never included in the response.
+ */
+settingsRouter.get("/subscription", async (req: Request, res: Response) => {
+  const settings = load(workspaceOf(req));
+  const cfg = settings.providers.find(
+    (p: ProviderConfig) => p.provider_id === settings.active_provider_id
+  );
+
+  if (!cfg || cfg.kind !== "olf_managed") {
+    res.status(404).json({
+      error: "subscription state is only available for OLF Managed Inference providers",
+    });
+    return;
+  }
+
+  const state = await fetchSubscriptionState(cfg);
+  const portalUrl = buildPortalUrl(cfg, state);
+
+  res.status(200).json({
+    ...state,
+    portal_url: portalUrl,
   });
 });
