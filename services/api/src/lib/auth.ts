@@ -7,11 +7,14 @@
 import type { Request, Response, NextFunction } from "express";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { Role } from "@commons-board/shared";
+import { verifyDeviceToken } from "./device-auth.js";
 
 export type RequestContext = {
   userId: string;
   workspaceId: string;
   role: Role;
+  /** Set when the caller authenticated as a registered device (site controller), not a human. */
+  deviceId?: string;
 };
 
 const ROLE_SET = new Set<Role>(["admin", "operator", "member", "observer"]);
@@ -27,6 +30,35 @@ declare global {
 
 export function requireContext(req: Request, res: Response, next: NextFunction): void {
   void (async () => {
+    // Device auth (a registered site controller) is checked first and is
+    // independent of which of the three human-identity modes below is
+    // configured -- the credential is self-contained (it resolves both
+    // identity and workspace), so there's nothing else to configure for it
+    // to work. An empty device registry (the default) makes this a no-op.
+    const authHeaderForDevice = req.header("authorization");
+    const bearerForDevice =
+      authHeaderForDevice && authHeaderForDevice.toLowerCase().startsWith("bearer ")
+        ? authHeaderForDevice.slice(7).trim()
+        : undefined;
+    if (bearerForDevice) {
+      const device = verifyDeviceToken(bearerForDevice);
+      if (device) {
+        req.ctx = {
+          userId: `device:${device.device_id}`,
+          workspaceId: device.workspace_id,
+          role: "operator",
+          deviceId: device.device_id,
+        };
+        const targetWorkspaceId = req.header("x-target-workspace-id");
+        if (targetWorkspaceId && targetWorkspaceId !== device.workspace_id) {
+          res.status(403).json({ error: "cross-tenant access denied", target: targetWorkspaceId, context: device.workspace_id });
+          return;
+        }
+        next();
+        return;
+      }
+    }
+
     const apiToken = process.env.CB_API_TOKEN;
     const jwtConfigured = !!(process.env.CB_JWT_SECRET || process.env.CB_OIDC_JWKS_URL);
     // Trusts client-supplied x-user-id/x-workspace-id/x-user-role headers with no
